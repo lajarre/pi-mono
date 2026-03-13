@@ -84,6 +84,14 @@ export function resetCapabilitiesCache(): void {
 const KITTY_PREFIX = "\x1b_G";
 const ITERM2_PREFIX = "\x1b]1337;File=";
 
+function maybeWrapTmuxPassthrough(sequence: string): string {
+	if (!process.env.TMUX) {
+		return sequence;
+	}
+
+	return `\x1bPtmux;${sequence.replaceAll("\x1b", "\x1b\x1b")}\x1b\\`;
+}
+
 export function isImageLine(line: string): boolean {
 	// Fast path: sequence at line start (single-row images)
 	if (line.startsWith(KITTY_PREFIX) || line.startsWith(ITERM2_PREFIX)) {
@@ -120,7 +128,7 @@ export function encodeKitty(
 	if (options.imageId) params.push(`i=${options.imageId}`);
 
 	if (base64Data.length <= CHUNK_SIZE) {
-		return `\x1b_G${params.join(",")};${base64Data}\x1b\\`;
+		return maybeWrapTmuxPassthrough(`\x1b_G${params.join(",")};${base64Data}\x1b\\`);
 	}
 
 	const chunks: string[] = [];
@@ -132,12 +140,12 @@ export function encodeKitty(
 		const isLast = offset + CHUNK_SIZE >= base64Data.length;
 
 		if (isFirst) {
-			chunks.push(`\x1b_G${params.join(",")},m=1;${chunk}\x1b\\`);
+			chunks.push(maybeWrapTmuxPassthrough(`\x1b_G${params.join(",")},m=1;${chunk}\x1b\\`));
 			isFirst = false;
 		} else if (isLast) {
-			chunks.push(`\x1b_Gm=0;${chunk}\x1b\\`);
+			chunks.push(maybeWrapTmuxPassthrough(`\x1b_Gm=0;${chunk}\x1b\\`));
 		} else {
-			chunks.push(`\x1b_Gm=1;${chunk}\x1b\\`);
+			chunks.push(maybeWrapTmuxPassthrough(`\x1b_Gm=1;${chunk}\x1b\\`));
 		}
 
 		offset += CHUNK_SIZE;
@@ -151,7 +159,7 @@ export function encodeKitty(
  * Uses uppercase 'I' to also free the image data.
  */
 export function deleteKittyImage(imageId: number): string {
-	return `\x1b_Ga=d,d=I,i=${imageId}\x1b\\`;
+	return maybeWrapTmuxPassthrough(`\x1b_Ga=d,d=I,i=${imageId}\x1b\\`);
 }
 
 /**
@@ -159,7 +167,7 @@ export function deleteKittyImage(imageId: number): string {
  * Uses uppercase 'A' to also free the image data.
  */
 export function deleteAllKittyImages(): string {
-	return `\x1b_Ga=d,d=A\x1b\\`;
+	return maybeWrapTmuxPassthrough(`\x1b_Ga=d,d=A\x1b\\`);
 }
 
 export function encodeITerm2(
