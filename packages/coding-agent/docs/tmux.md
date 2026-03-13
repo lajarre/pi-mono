@@ -1,6 +1,6 @@
 # tmux Setup
 
-Pi works inside tmux, but tmux strips modifier information from certain keys by default. Without configuration, `Shift+Enter` and `Ctrl+Enter` are usually indistinguishable from plain `Enter`.
+Pi works inside tmux, but tmux strips modifier information from certain keys by default and blocks terminal passthrough unless configured. Without setup, modified Enter keys and Kitty-protocol inline images may not work reliably.
 
 ## Recommended Configuration
 
@@ -9,6 +9,7 @@ Add to `~/.tmux.conf`:
 ```tmux
 set -g extended-keys on
 set -g extended-keys-format csi-u
+set -g allow-passthrough on
 ```
 
 Then restart tmux fully:
@@ -19,6 +20,16 @@ tmux
 ```
 
 Pi requests extended key reporting automatically when Kitty keyboard protocol is not available. With `extended-keys-format csi-u`, tmux forwards modified keys in CSI-u format, which is the most reliable configuration.
+
+## Inline Images in Ghostty, Kitty, and WezTerm
+
+Pi can render inline images via the Kitty graphics protocol. When Pi runs inside tmux, it wraps Kitty image sequences in tmux passthrough automatically, but tmux still needs:
+
+```tmux
+set -g allow-passthrough on
+```
+
+Without passthrough, tmux filters the image escape sequences before they reach Ghostty, Kitty, or WezTerm, so Pi may think images are supported while nothing renders.
 
 ## Why `csi-u` Is Recommended
 
@@ -57,5 +68,5 @@ This affects the default keybindings (`Enter` to submit, `Shift+Enter` for newli
 
 ## Requirements
 
-- tmux 3.2 or later (run `tmux -V` to check)
-- A terminal emulator that supports extended keys (Ghostty, Kitty, iTerm2, WezTerm, Windows Terminal)
+- tmux 3.3 or later for `allow-passthrough` (run `tmux -V` to check)
+- A terminal emulator that supports extended keys and Kitty graphics passthrough where relevant (Ghostty, Kitty, iTerm2, WezTerm, Windows Terminal)
