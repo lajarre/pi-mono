@@ -363,7 +363,7 @@ export function renderImage(
 	const rows = calculateImageRows(imageDimensions, maxWidth, getCellDimensions());
 
 	if (caps.images === "kitty") {
-		// Only use imageId if explicitly provided - static images don't need IDs
+		// Reusing a stable image ID lets callers replace images cleanly on rerender.
 		const sequence = encodeKitty(base64Data, { columns: maxWidth, rows, imageId: options.imageId });
 		return { sequence, rows, imageId: options.imageId };
 	}

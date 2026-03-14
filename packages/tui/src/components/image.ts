@@ -1,4 +1,5 @@
 import {
+	allocateImageId,
 	getCapabilities,
 	getImageDimensions,
 	type ImageDimensions,
@@ -15,7 +16,7 @@ export interface ImageOptions {
 	maxWidthCells?: number;
 	maxHeightCells?: number;
 	filename?: string;
-	/** Kitty image ID. If provided, reuses this ID (for animations/updates). */
+	/** Kitty image ID. If provided, reuses this ID (for animations/updates). Auto-allocated for Kitty images when omitted. */
 	imageId?: number;
 }
 
@@ -66,6 +67,10 @@ export class Image implements Component {
 		let lines: string[];
 
 		if (caps.images) {
+			if (caps.images === "kitty" && this.imageId === undefined) {
+				this.imageId = allocateImageId();
+			}
+
 			const result = renderImage(this.base64Data, this.dimensions, {
 				maxWidthCells: maxWidth,
 				imageId: this.imageId,
