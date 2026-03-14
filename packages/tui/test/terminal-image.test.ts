@@ -4,24 +4,35 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { deleteAllKittyImages, deleteKittyImage, encodeKitty, isImageLine } from "../src/terminal-image.js";
+import { Image } from "../src/components/image.js";
+import {
+	deleteAllKittyImages,
+	deleteKittyImage,
+	encodeKitty,
+	isImageLine,
+	resetCapabilitiesCache,
+} from "../src/terminal-image.js";
 
-function withTmuxEnv<T>(value: string | undefined, fn: () => T): T {
-	const previous = process.env.TMUX;
+function withEnv<T>(key: string, value: string | undefined, fn: () => T): T {
+	const previous = process.env[key];
 	if (value === undefined) {
-		delete process.env.TMUX;
+		delete process.env[key];
 	} else {
-		process.env.TMUX = value;
+		process.env[key] = value;
 	}
 	try {
 		return fn();
 	} finally {
 		if (previous === undefined) {
-			delete process.env.TMUX;
+			delete process.env[key];
 		} else {
-			process.env.TMUX = previous;
+			process.env[key] = previous;
 		}
 	}
+}
+
+function withTmuxEnv<T>(value: string | undefined, fn: () => T): T {
+	return withEnv("TMUX", value, fn);
 }
 
 describe("terminal image helpers", () => {
@@ -57,6 +68,33 @@ describe("terminal image helpers", () => {
 			assert.strictEqual(isImageLine(sequence), true);
 		});
 	});
+
+	describe("Image component", () => {
+		it("should allocate and reuse a stable Kitty image ID across rerenders", () => {
+			withEnv("TERM_PROGRAM", "kitty", () => {
+				resetCapabilitiesCache();
+				const image = new Image(
+					"QUJD",
+					"image/png",
+					{ fallbackColor: (s) => s },
+					{ maxWidthCells: 10 },
+					{ widthPx: 100, heightPx: 50 },
+				);
+
+				const firstLines = image.render(20);
+				const firstImageId = image.getImageId();
+				assert.ok(firstImageId);
+				assert.ok(firstLines.at(-1)?.includes(`i=${firstImageId}`));
+
+				image.invalidate();
+				const secondLines = image.render(20);
+				assert.strictEqual(image.getImageId(), firstImageId);
+				assert.ok(secondLines.at(-1)?.includes(`i=${firstImageId}`));
+				resetCapabilitiesCache();
+			});
+		});
+	});
+
 	describe("isImageLine", () => {
 		describe("iTerm2 image protocol", () => {
 			it("should detect iTerm2 image escape sequence at start of line", () => {
