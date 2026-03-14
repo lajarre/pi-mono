@@ -82,16 +82,18 @@ export class Image implements Component {
 					this.imageId = result.imageId;
 				}
 
-				// Return `rows` lines so TUI accounts for image height
-				// First (rows-1) lines are empty (TUI clears them)
-				// Last line: move cursor back up, then output image sequence
+				// Return `rows` lines so TUI accounts for image height.
+				// First (rows-1) lines are empty placeholders the TUI clears.
+				// Last line moves up to the first placeholder row, draws the
+				// image, then moves back down so the terminal cursor ends on
+				// the final reserved row as the TUI expects.
 				lines = [];
 				for (let i = 0; i < result.rows - 1; i++) {
 					lines.push("");
 				}
-				// Move cursor up to first row, then output image
 				const moveUp = result.rows > 1 ? `\x1b[${result.rows - 1}A` : "";
-				lines.push(moveUp + result.sequence);
+				const moveDown = result.rows > 1 ? `\x1b[${result.rows - 1}B` : "";
+				lines.push(moveUp + result.sequence + moveDown);
 			} else {
 				const fallback = imageFallback(this.mimeType, this.dimensions, this.options.filename);
 				lines = [this.theme.fallbackColor(fallback)];

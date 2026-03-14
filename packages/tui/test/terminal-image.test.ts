@@ -85,11 +85,14 @@ describe("terminal image helpers", () => {
 				const firstImageId = image.getImageId();
 				assert.ok(firstImageId);
 				assert.ok(firstLines.at(-1)?.includes(`i=${firstImageId}`));
+				assert.ok(firstLines.at(-1)?.startsWith(`\x1b[${firstLines.length - 1}A`));
+				assert.ok(firstLines.at(-1)?.endsWith(`\x1b[${firstLines.length - 1}B`));
 
 				image.invalidate();
 				const secondLines = image.render(20);
 				assert.strictEqual(image.getImageId(), firstImageId);
 				assert.ok(secondLines.at(-1)?.includes(`i=${firstImageId}`));
+				assert.ok(secondLines.at(-1)?.endsWith(`\x1b[${secondLines.length - 1}B`));
 				resetCapabilitiesCache();
 			});
 		});
