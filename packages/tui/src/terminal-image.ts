@@ -121,7 +121,7 @@ export function encodeKitty(
 ): string {
 	const CHUNK_SIZE = 4096;
 
-	const params: string[] = ["a=T", "f=100", "q=2"];
+	const params: string[] = ["a=T", "f=100", "q=2", "C=1"];
 
 	if (options.columns) params.push(`c=${options.columns}`);
 	if (options.rows) params.push(`r=${options.rows}`);
@@ -359,19 +359,42 @@ export function renderImage(
 		return null;
 	}
 
-	const maxWidth = options.maxWidthCells ?? 80;
-	const rows = calculateImageRows(imageDimensions, maxWidth, getCellDimensions());
+	const cellDims = getCellDimensions();
+	const maxWidth = Math.max(1, options.maxWidthCells ?? 80);
+	const maxHeight = options.maxHeightCells !== undefined ? Math.max(1, options.maxHeightCells) : undefined;
+	let columns = maxWidth;
+	let rows = calculateImageRows(imageDimensions, columns, cellDims);
+
+	if (maxHeight !== undefined && rows > maxHeight) {
+		const maxHeightPx = maxHeight * cellDims.heightPx;
+		const scale = maxHeightPx / imageDimensions.heightPx;
+		const constrainedWidthPx = Math.max(cellDims.widthPx, Math.floor(imageDimensions.widthPx * scale));
+		columns = Math.max(1, Math.min(maxWidth, Math.floor(constrainedWidthPx / cellDims.widthPx)));
+		rows = calculateImageRows(imageDimensions, columns, cellDims);
+		while (columns > 1 && rows > maxHeight) {
+			columns -= 1;
+			rows = calculateImageRows(imageDimensions, columns, cellDims);
+		}
+		if (rows > maxHeight) {
+			rows = maxHeight;
+		}
+	}
 
 	if (caps.images === "kitty") {
+		// Kitty `f=100` expects PNG data. Fall back if callers pass another format.
+		if (!getPngDimensions(base64Data)) {
+			return null;
+		}
+
 		// Reusing a stable image ID lets callers replace images cleanly on rerender.
-		const sequence = encodeKitty(base64Data, { columns: maxWidth, rows, imageId: options.imageId });
+		const sequence = encodeKitty(base64Data, { columns, rows, imageId: options.imageId });
 		return { sequence, rows, imageId: options.imageId };
 	}
 
 	if (caps.images === "iterm2") {
 		const sequence = encodeITerm2(base64Data, {
-			width: maxWidth,
-			height: "auto",
+			width: columns,
+			height: maxHeight !== undefined ? `${maxHeight}cells` : "auto",
 			preserveAspectRatio: options.preserveAspectRatio ?? true,
 		});
 		return { sequence, rows };

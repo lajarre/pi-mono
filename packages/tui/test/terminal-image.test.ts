@@ -10,6 +10,7 @@ import {
 	deleteKittyImage,
 	encodeKitty,
 	isImageLine,
+	renderImage,
 	resetCapabilitiesCache,
 } from "../src/terminal-image.js";
 
@@ -31,20 +32,39 @@ function withEnv<T>(key: string, value: string | undefined, fn: () => T): T {
 	}
 }
 
+const PNG_1X1_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+cJ6kAAAAASUVORK5CYII=";
+
 function withTmuxEnv<T>(value: string | undefined, fn: () => T): T {
 	return withEnv("TMUX", value, fn);
+}
+
+function withCapabilitiesReset<T>(fn: () => T): T {
+	resetCapabilitiesCache();
+	try {
+		return fn();
+	} finally {
+		resetCapabilitiesCache();
+	}
+}
+
+function withClearedKittyLikeEnv<T>(fn: () => T): T {
+	return withEnv("KITTY_WINDOW_ID", undefined, () =>
+		withEnv("WEZTERM_PANE", undefined, () =>
+			withEnv("GHOSTTY_RESOURCES_DIR", undefined, () => withEnv("TERM", "xterm-256color", fn)),
+		),
+	);
 }
 
 describe("terminal image helpers", () => {
 	describe("Kitty tmux passthrough", () => {
 		it("should emit raw Kitty sequences outside tmux", () => {
 			const sequence = withTmuxEnv(undefined, () => encodeKitty("QUJD", { columns: 10, rows: 4, imageId: 7 }));
-			assert.strictEqual(sequence, "\x1b_Ga=T,f=100,q=2,c=10,r=4,i=7;QUJD\x1b\\");
+			assert.strictEqual(sequence, "\x1b_Ga=T,f=100,q=2,C=1,c=10,r=4,i=7;QUJD\x1b\\");
 		});
 
 		it("should wrap Kitty sequences for tmux passthrough", () => {
 			const sequence = withTmuxEnv("/tmp/tmux,123,0", () => encodeKitty("QUJD", { columns: 10, rows: 4 }));
-			assert.strictEqual(sequence, "\x1bPtmux;\x1b\x1b_Ga=T,f=100,q=2,c=10,r=4;QUJD\x1b\x1b\\\x1b\\");
+			assert.strictEqual(sequence, "\x1bPtmux;\x1b\x1b_Ga=T,f=100,q=2,C=1,c=10,r=4;QUJD\x1b\x1b\\\x1b\\");
 		});
 
 		it("should wrap each Kitty chunk separately for tmux passthrough", () => {
@@ -52,7 +72,7 @@ describe("terminal image helpers", () => {
 			const sequence = withTmuxEnv("/tmp/tmux,123,0", () => encodeKitty(payload));
 			assert.strictEqual(sequence.match(/\x1bPtmux;/g)?.length, 2);
 			assert.strictEqual(sequence.match(/\x1b\\/g)?.length, 4);
-			assert.ok(sequence.includes("\x1bPtmux;\x1b\x1b_Ga=T,f=100,q=2,m=1;"));
+			assert.ok(sequence.includes("\x1bPtmux;\x1b\x1b_Ga=T,f=100,q=2,C=1,m=1;"));
 			assert.ok(sequence.includes("\x1bPtmux;\x1b\x1b_Gm=0;"));
 		});
 
@@ -70,31 +90,164 @@ describe("terminal image helpers", () => {
 	});
 
 	describe("Image component", () => {
-		it("should allocate and reuse a stable Kitty image ID across rerenders", () => {
-			withEnv("TERM_PROGRAM", "kitty", () => {
-				resetCapabilitiesCache();
-				const image = new Image(
-					"QUJD",
-					"image/png",
-					{ fallbackColor: (s) => s },
-					{ maxWidthCells: 10 },
-					{ widthPx: 100, heightPx: 50 },
-				);
+		it("should auto-allocate a stable Kitty image ID for PNG rerenders", () => {
+			withEnv("TERM_PROGRAM", "kitty", () =>
+				withCapabilitiesReset(() => {
+					const image = new Image(
+						PNG_1X1_BASE64,
+						"image/png",
+						{ fallbackColor: (s) => s },
+						{ maxWidthCells: 10 },
+						{ widthPx: 100, heightPx: 50 },
+					);
 
-				const firstLines = image.render(20);
-				const firstImageId = image.getImageId();
-				assert.ok(firstImageId);
-				assert.ok(firstLines.at(-1)?.includes(`i=${firstImageId}`));
-				assert.ok(firstLines.at(-1)?.startsWith(`\x1b[${firstLines.length - 1}A`));
-				assert.ok(firstLines.at(-1)?.endsWith(`\x1b[${firstLines.length - 1}B`));
+					const firstLines = image.render(20);
+					const firstImageId = image.getImageId();
+					assert.ok(firstImageId);
+					assert.ok(firstLines.at(-1)?.includes(`i=${firstImageId}`));
 
-				image.invalidate();
-				const secondLines = image.render(20);
-				assert.strictEqual(image.getImageId(), firstImageId);
-				assert.ok(secondLines.at(-1)?.includes(`i=${firstImageId}`));
-				assert.ok(secondLines.at(-1)?.endsWith(`\x1b[${secondLines.length - 1}B`));
-				resetCapabilitiesCache();
-			});
+					image.invalidate();
+					const secondLines = image.render(20);
+					assert.strictEqual(image.getImageId(), firstImageId);
+					assert.ok(secondLines.at(-1)?.includes(`i=${firstImageId}`));
+				}),
+			);
+		});
+
+		it("should reuse an explicitly provided Kitty image ID across rerenders", () => {
+			withEnv("TERM_PROGRAM", "kitty", () =>
+				withCapabilitiesReset(() => {
+					const image = new Image(
+						PNG_1X1_BASE64,
+						"image/png",
+						{ fallbackColor: (s) => s },
+						{ maxWidthCells: 10, imageId: 7 },
+						{ widthPx: 100, heightPx: 50 },
+					);
+
+					const firstLines = image.render(20);
+					assert.strictEqual(image.getImageId(), 7);
+					assert.ok(firstLines.at(-1)?.includes("i=7"));
+					assert.ok(firstLines.at(-1)?.startsWith(`\x1b[${firstLines.length - 1}A`));
+					assert.ok(firstLines.at(-1)?.endsWith(`\x1b[${firstLines.length - 1}B`));
+
+					image.invalidate();
+					const secondLines = image.render(20);
+					assert.strictEqual(image.getImageId(), 7);
+					assert.ok(secondLines.at(-1)?.includes("i=7"));
+					assert.ok(secondLines.at(-1)?.endsWith(`\x1b[${secondLines.length - 1}B`));
+				}),
+			);
+		});
+
+		it("should clamp very narrow Kitty widths to at least one column", () => {
+			withEnv("TERM_PROGRAM", "kitty", () =>
+				withCapabilitiesReset(() => {
+					const image = new Image(PNG_1X1_BASE64, "image/png", { fallbackColor: (s) => s }, undefined, {
+						widthPx: 100,
+						heightPx: 50,
+					});
+
+					const lines = image.render(1);
+					assert.ok(lines.at(-1)?.includes("c=1"));
+					assert.ok(!lines.at(-1)?.includes("c=-"));
+				}),
+			);
+		});
+
+		it("should honor maxHeightCells by shrinking width when needed", () => {
+			withEnv("TERM_PROGRAM", "kitty", () =>
+				withCapabilitiesReset(() => {
+					const image = new Image(
+						PNG_1X1_BASE64,
+						"image/png",
+						{ fallbackColor: (s) => s },
+						{ maxWidthCells: 60, maxHeightCells: 5, imageId: 9 },
+						{ widthPx: 100, heightPx: 400 },
+					);
+
+					const lines = image.render(120);
+					assert.strictEqual(lines.length <= 5, true);
+					assert.ok(lines.at(-1)?.includes("c=2"));
+					assert.ok(lines.at(-1)?.includes("r=5") || lines.at(-1)?.includes("r=4"));
+					const result = renderImage(
+						PNG_1X1_BASE64,
+						{ widthPx: 100, heightPx: 400 },
+						{ maxWidthCells: 60, maxHeightCells: 5, imageId: 9 },
+					);
+					assert.ok(result);
+					assert.strictEqual(result.rows <= 5, true);
+				}),
+			);
+		});
+
+		it("should fall back for non-PNG Kitty images instead of emitting invalid Kitty payloads", () => {
+			withEnv("TERM_PROGRAM", "kitty", () =>
+				withCapabilitiesReset(() => {
+					const image = new Image(
+						"QUJD",
+						"image/jpeg",
+						{ fallbackColor: (s) => s },
+						{ maxWidthCells: 10 },
+						{ widthPx: 100, heightPx: 50 },
+					);
+
+					const lines = image.render(20);
+					assert.strictEqual(image.getImageId(), undefined);
+					assert.deepStrictEqual(lines, ["[Image: [image/jpeg] 100x50]"]);
+					assert.strictEqual(renderImage("QUJD", { widthPx: 100, heightPx: 50 }, { maxWidthCells: 10 }), null);
+				}),
+			);
+		});
+
+		it("should not allocate Kitty image IDs for iTerm2 images", () => {
+			withEnv("TERM_PROGRAM", "iterm.app", () =>
+				withClearedKittyLikeEnv(() =>
+					withCapabilitiesReset(() => {
+						const image = new Image(
+							PNG_1X1_BASE64,
+							"image/png",
+							{ fallbackColor: (s) => s },
+							{ maxWidthCells: 10 },
+							{ widthPx: 100, heightPx: 50 },
+						);
+
+						const firstLines = image.render(20);
+						assert.strictEqual(image.getImageId(), undefined);
+						assert.ok(firstLines.at(-1)?.includes("\x1b]1337;File="));
+						assert.ok(!firstLines.at(-1)?.includes("i="));
+						assert.ok(!/\x1b\[\d+B$/.test(firstLines.at(-1) ?? ""));
+
+						image.invalidate();
+						const secondLines = image.render(20);
+						assert.strictEqual(image.getImageId(), undefined);
+						assert.ok(secondLines.at(-1)?.includes("\x1b]1337;File="));
+						assert.ok(!secondLines.at(-1)?.includes("i="));
+					}),
+				),
+			);
+		});
+
+		it("should keep fallback behavior for terminals without image support", () => {
+			withEnv("TERM_PROGRAM", "vscode", () =>
+				withEnv("ITERM_SESSION_ID", undefined, () =>
+					withClearedKittyLikeEnv(() =>
+						withCapabilitiesReset(() => {
+							const image = new Image(
+								PNG_1X1_BASE64,
+								"image/png",
+								{ fallbackColor: (s) => s },
+								{ maxWidthCells: 10 },
+								{ widthPx: 100, heightPx: 50 },
+							);
+
+							const lines = image.render(20);
+							assert.strictEqual(image.getImageId(), undefined);
+							assert.deepStrictEqual(lines, ["[Image: [image/png] 100x50]"]);
+						}),
+					),
+				),
+			);
 		});
 	});
 

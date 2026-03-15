@@ -16,7 +16,7 @@ export interface ImageOptions {
 	maxWidthCells?: number;
 	maxHeightCells?: number;
 	filename?: string;
-	/** Kitty image ID. If provided, reuses this ID (for animations/updates). Auto-allocated for Kitty images when omitted. */
+	/** Kitty image ID. If provided, reuses this ID (for animations/updates). */
 	imageId?: number;
 }
 
@@ -61,18 +61,19 @@ export class Image implements Component {
 			return this.cachedLines;
 		}
 
-		const maxWidth = Math.min(width - 2, this.options.maxWidthCells ?? 60);
+		const maxWidth = Math.max(1, Math.min(width - 2, this.options.maxWidthCells ?? 60));
 
 		const caps = getCapabilities();
 		let lines: string[];
 
 		if (caps.images) {
-			if (caps.images === "kitty" && this.imageId === undefined) {
+			if (caps.images === "kitty" && this.imageId === undefined && this.mimeType === "image/png") {
 				this.imageId = allocateImageId();
 			}
 
 			const result = renderImage(this.base64Data, this.dimensions, {
 				maxWidthCells: maxWidth,
+				maxHeightCells: this.options.maxHeightCells,
 				imageId: this.imageId,
 			});
 
@@ -85,14 +86,14 @@ export class Image implements Component {
 				// Return `rows` lines so TUI accounts for image height.
 				// First (rows-1) lines are empty placeholders the TUI clears.
 				// Last line moves up to the first placeholder row, draws the
-				// image, then moves back down so the terminal cursor ends on
-				// the final reserved row as the TUI expects.
+				// image, and for Kitty moves back down so the terminal cursor
+				// ends on the final reserved row as the TUI expects.
 				lines = [];
 				for (let i = 0; i < result.rows - 1; i++) {
 					lines.push("");
 				}
 				const moveUp = result.rows > 1 ? `\x1b[${result.rows - 1}A` : "";
-				const moveDown = result.rows > 1 ? `\x1b[${result.rows - 1}B` : "";
+				const moveDown = caps.images === "kitty" && result.rows > 1 ? `\x1b[${result.rows - 1}B` : "";
 				lines.push(moveUp + result.sequence + moveDown);
 			} else {
 				const fallback = imageFallback(this.mimeType, this.dimensions, this.options.filename);
