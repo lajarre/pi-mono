@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { isKeyRelease, matchesKey } from "./keys.js";
 import type { Terminal } from "./terminal.js";
-import { getCapabilities, isImageLine, setCellDimensions } from "./terminal-image.js";
+import { deleteKittyImage, getCapabilities, isImageLine, setCellDimensions } from "./terminal-image.js";
 import { extractSegments, sliceByColumn, sliceWithWidth, visibleWidth } from "./utils.js";
 
 /**
@@ -185,7 +185,14 @@ export class Container implements Component {
 	}
 
 	clear(): void {
+		for (const child of this.children) {
+			(child as Component & { dispose?: () => void }).dispose?.();
+		}
 		this.children = [];
+	}
+
+	dispose(): void {
+		this.clear();
 	}
 
 	invalidate(): void {
@@ -221,6 +228,7 @@ export class TUI extends Container {
 	private hardwareCursorRow = 0; // Actual terminal cursor row (may differ due to IME positioning)
 	private inputBuffer = ""; // Buffer for parsing terminal responses
 	private cellSizeQueryPending = false;
+	private cellSizeQueryTimeout?: NodeJS.Timeout;
 	private showHardwareCursor = process.env.PI_HARDWARE_CURSOR === "1";
 	private clearOnShrink = process.env.PI_CLEAR_ON_SHRINK === "1"; // Clear empty rows when content shrinks (default: off)
 	private maxLinesRendered = 0; // Track terminal's working area (max lines ever rendered)
@@ -316,6 +324,7 @@ export class TUI extends Container {
 				const index = this.overlayStack.indexOf(entry);
 				if (index !== -1) {
 					this.overlayStack.splice(index, 1);
+					(component as Component & { dispose?: () => void }).dispose?.();
 					// Restore focus if this overlay had focus
 					if (this.focusedComponent === component) {
 						const topVisible = this.getTopmostVisibleOverlay();
@@ -367,6 +376,7 @@ export class TUI extends Container {
 	hideOverlay(): void {
 		const overlay = this.overlayStack.pop();
 		if (!overlay) return;
+		(overlay.component as Component & { dispose?: () => void }).dispose?.();
 		if (this.focusedComponent === overlay.component) {
 			// Find topmost visible overlay, or fall back to preFocus
 			const topVisible = this.getTopmostVisibleOverlay();
@@ -436,11 +446,23 @@ export class TUI extends Container {
 		// Query terminal for cell size in pixels: CSI 16 t
 		// Response format: CSI 6 ; height ; width t
 		this.cellSizeQueryPending = true;
+		clearTimeout(this.cellSizeQueryTimeout);
+		this.cellSizeQueryTimeout = setTimeout(() => {
+			if (!this.cellSizeQueryPending) return;
+			const buffered = this.inputBuffer;
+			this.inputBuffer = "";
+			this.cellSizeQueryPending = false;
+			if (buffered.length > 0) {
+				this.handleInput(buffered);
+			}
+		}, 50);
 		this.terminal.write("\x1b[16t");
 	}
 
 	stop(): void {
 		this.stopped = true;
+		clearTimeout(this.cellSizeQueryTimeout);
+		const visibleKittyImageIds = this.collectKittyImageIds(this.previousLines);
 		// Move cursor to the end of the content to prevent overwriting/artifacts on exit
 		if (this.previousLines.length > 0) {
 			const targetRow = this.previousLines.length; // Line after the last content
@@ -451,6 +473,12 @@ export class TUI extends Container {
 				this.terminal.write(`\x1b[${-lineDiff}A`);
 			}
 			this.terminal.write("\r\n");
+		}
+
+		if (getCapabilities().images === "kitty") {
+			for (const imageId of visibleKittyImageIds) {
+				this.terminal.write(deleteKittyImage(imageId));
+			}
 		}
 
 		this.terminal.showCursor();
@@ -501,6 +529,11 @@ export class TUI extends Container {
 			data = filtered;
 		}
 
+		data = this.consumeCellSizeResponses(data);
+		if (data.length === 0) {
+			return;
+		}
+
 		// Global debug key handler (Shift+Ctrl+D)
 		if (matchesKey(data, "shift+ctrl+d") && this.onDebug) {
 			this.onDebug();
@@ -533,6 +566,27 @@ export class TUI extends Container {
 		}
 	}
 
+	private consumeCellSizeResponses(data: string): string {
+		const responsePattern = /\x1b\[6;(\d+);(\d+)t/g;
+		let sawResponse = false;
+		const stripped = data.replace(responsePattern, (_full, height, width) => {
+			const heightPx = Number.parseInt(height, 10);
+			const widthPx = Number.parseInt(width, 10);
+			if (heightPx > 0 && widthPx > 0) {
+				setCellDimensions({ widthPx, heightPx });
+				sawResponse = true;
+			}
+			return "";
+		});
+		if (sawResponse) {
+			this.invalidate();
+			this.requestRender();
+			this.cellSizeQueryPending = false;
+			clearTimeout(this.cellSizeQueryTimeout);
+		}
+		return stripped;
+	}
+
 	private parseCellSizeResponse(): string {
 		// Response format: ESC [ 6 ; height ; width t
 		// Match the response pattern
@@ -553,10 +607,12 @@ export class TUI extends Container {
 			// Remove the response from buffer
 			this.inputBuffer = this.inputBuffer.replace(responsePattern, "");
 			this.cellSizeQueryPending = false;
+			clearTimeout(this.cellSizeQueryTimeout);
 		}
 
 		// Check if we have a partial cell size response starting (wait for more data)
 		// Patterns that could be incomplete cell size response: \x1b, \x1b[, \x1b[6, \x1b[6;...(no t yet)
+		// A short timeout in queryCellSize() releases buffered user input if no full response arrives.
 		const partialCellSizePattern = /\x1b(\[6?;?[\d;]*)?$/;
 		if (partialCellSizePattern.test(this.inputBuffer)) {
 			// Check if it's actually a complete different escape sequence (ends with a letter)
@@ -572,6 +628,7 @@ export class TUI extends Container {
 		const result = this.inputBuffer;
 		this.inputBuffer = "";
 		this.cellSizeQueryPending = false; // Give up waiting
+		clearTimeout(this.cellSizeQueryTimeout);
 		return result;
 	}
 
@@ -775,6 +832,20 @@ export class TUI extends Container {
 	}
 
 	private static readonly SEGMENT_RESET = "\x1b[0m\x1b]8;;\x07";
+	private static readonly KITTY_IMAGE_ID_PATTERN = /\x1b_G[^;]*\bi=(\d+)\b[^;]*;/g;
+
+	private collectKittyImageIds(lines: string[]): Set<number> {
+		const ids = new Set<number>();
+		for (const line of lines) {
+			TUI.KITTY_IMAGE_ID_PATTERN.lastIndex = 0;
+			let match = TUI.KITTY_IMAGE_ID_PATTERN.exec(line);
+			while (match !== null) {
+				ids.add(Number.parseInt(match[1], 10));
+				match = TUI.KITTY_IMAGE_ID_PATTERN.exec(line);
+			}
+		}
+		return ids;
+	}
 
 	private applyLineResets(lines: string[]): string[] {
 		const reset = TUI.SEGMENT_RESET;
@@ -891,6 +962,9 @@ export class TUI extends Container {
 		const cursorPos = this.extractCursorPosition(newLines, height);
 
 		newLines = this.applyLineResets(newLines);
+		const previousKittyImageIds = this.collectKittyImageIds(this.previousLines);
+		const newKittyImageIds = this.collectKittyImageIds(newLines);
+		const removedKittyImageIds = [...previousKittyImageIds].filter((id) => !newKittyImageIds.has(id));
 
 		// Width or height changed - need full re-render
 		const widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;
@@ -904,6 +978,9 @@ export class TUI extends Container {
 			for (let i = 0; i < newLines.length; i++) {
 				if (i > 0) buffer += "\r\n";
 				buffer += newLines[i];
+			}
+			for (const imageId of removedKittyImageIds) {
+				buffer += deleteKittyImage(imageId);
 			}
 			buffer += "\x1b[?2026l"; // End synchronized output
 			this.terminal.write(buffer);
@@ -1011,6 +1088,9 @@ export class TUI extends Container {
 				}
 				if (extraLines > 0) {
 					buffer += `\x1b[${extraLines}A`;
+				}
+				for (const imageId of removedKittyImageIds) {
+					buffer += deleteKittyImage(imageId);
 				}
 				buffer += "\x1b[?2026l";
 				this.terminal.write(buffer);
@@ -1121,6 +1201,9 @@ export class TUI extends Container {
 			buffer += `\x1b[${extraLines}A`;
 		}
 
+		for (const imageId of removedKittyImageIds) {
+			buffer += deleteKittyImage(imageId);
+		}
 		buffer += "\x1b[?2026l"; // End synchronized output
 
 		if (process.env.PI_TUI_DEBUG === "1") {

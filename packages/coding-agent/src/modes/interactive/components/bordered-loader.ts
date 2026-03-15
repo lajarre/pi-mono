@@ -58,7 +58,8 @@ export class BorderedLoader extends Container {
 		}
 	}
 
-	dispose(): void {
+	override dispose(): void {
+		super.dispose();
 		if ("dispose" in this.loader && typeof this.loader.dispose === "function") {
 			this.loader.dispose();
 		}
