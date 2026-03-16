@@ -1058,7 +1058,7 @@ export class InteractiveMode {
 						this.loadingAnimation.stop();
 						this.loadingAnimation = undefined;
 					}
-					this.statusContainer.clear();
+					this.statusContainer.disposeChildren();
 
 					// Delegate to AgentSession (handles setup + agent state sync)
 					const success = await this.session.newSession(options);
@@ -1067,8 +1067,8 @@ export class InteractiveMode {
 					}
 
 					// Clear UI state
-					this.chatContainer.clear();
-					this.pendingMessagesContainer.clear();
+					this.chatContainer.disposeChildren();
+					this.pendingMessagesContainer.disposeChildren();
 					this.compactionQueuedMessages = [];
 					this.streamingComponent = undefined;
 					this.streamingMessage = undefined;
@@ -1086,7 +1086,7 @@ export class InteractiveMode {
 						return { cancelled: true };
 					}
 
-					this.chatContainer.clear();
+					this.chatContainer.disposeChildren();
 					this.renderInitialMessages();
 					this.editor.setText(result.selectedText);
 					this.showStatus("Forked to new session");
@@ -1104,7 +1104,7 @@ export class InteractiveMode {
 						return { cancelled: true };
 					}
 
-					this.chatContainer.clear();
+					this.chatContainer.disposeChildren();
 					this.renderInitialMessages();
 					if (result.editorText && !this.editor.getText().trim()) {
 						this.editor.setText(result.editorText);
@@ -1655,7 +1655,7 @@ export class InteractiveMode {
 		// Save text from current editor before switching
 		const currentText = this.editor.getText();
 
-		this.editorContainer.clear();
+		this.editorContainer.disposeChildren();
 
 		if (factory) {
 			// Create the custom editor with tui, theme, and keybindings
@@ -1764,11 +1764,6 @@ export class InteractiveMode {
 				else restoreEditor();
 				// Note: both branches above already call requestRender
 				resolve(result);
-				try {
-					component?.dispose?.();
-				} catch {
-					/* ignore dispose errors */
-				}
 			};
 
 			Promise.resolve(factory(this.ui, theme, this.keybindings, close))
@@ -3075,7 +3070,7 @@ export class InteractiveMode {
 	 */
 	private showSelector(create: (done: () => void) => { component: Component; focus: Component }): void {
 		const done = () => {
-			this.editorContainer.clear();
+			this.editorContainer.disposeChildren();
 			this.editorContainer.addChild(this.editor);
 			this.ui.setFocus(this.editor);
 		};
@@ -3437,7 +3432,7 @@ export class InteractiveMode {
 						return;
 					}
 
-					this.chatContainer.clear();
+					this.chatContainer.disposeChildren();
 					this.renderInitialMessages();
 					this.editor.setText(result.selectedText);
 					done();
@@ -3549,7 +3544,7 @@ export class InteractiveMode {
 						}
 
 						// Update UI
-						this.chatContainer.clear();
+						this.chatContainer.disposeChildren();
 						this.renderInitialMessages();
 						if (result.editorText && !this.editor.getText().trim()) {
 							this.editor.setText(result.editorText);
@@ -3621,10 +3616,10 @@ export class InteractiveMode {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;
 		}
-		this.statusContainer.clear();
+		this.statusContainer.disposeChildren();
 
 		// Clear UI state
-		this.pendingMessagesContainer.clear();
+		this.pendingMessagesContainer.disposeChildren();
 		this.compactionQueuedMessages = [];
 		this.streamingComponent = undefined;
 		this.streamingMessage = undefined;
@@ -3634,7 +3629,7 @@ export class InteractiveMode {
 		await this.session.switchSession(sessionPath);
 
 		// Clear and re-render the chat
-		this.chatContainer.clear();
+		this.chatContainer.disposeChildren();
 		this.renderInitialMessages();
 		this.showStatus("Resumed session");
 	}
@@ -4196,15 +4191,15 @@ export class InteractiveMode {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;
 		}
-		this.statusContainer.clear();
+		this.statusContainer.disposeChildren();
 
 		// New session via session (emits extension session events)
 		await this.session.newSession();
 
 		// Clear UI state
-		this.headerContainer.clear();
-		this.chatContainer.clear();
-		this.pendingMessagesContainer.clear();
+		this.headerContainer.disposeChildren();
+		this.chatContainer.disposeChildren();
+		this.pendingMessagesContainer.disposeChildren();
 		this.compactionQueuedMessages = [];
 		this.streamingComponent = undefined;
 		this.streamingMessage = undefined;
@@ -4428,6 +4423,23 @@ export class InteractiveMode {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;
 		}
+		if (this.autoCompactionLoader) {
+			this.autoCompactionLoader.stop();
+			this.autoCompactionLoader = undefined;
+		}
+		if (this.retryLoader) {
+			this.retryLoader.stop();
+			this.retryLoader = undefined;
+		}
+		this.resetExtensionUI();
+		while (this.ui.hasOverlay()) {
+			this.ui.hideOverlay();
+		}
+		this.headerContainer.disposeChildren();
+		this.statusContainer.disposeChildren();
+		this.chatContainer.disposeChildren();
+		this.pendingMessagesContainer.disposeChildren();
+		this.editorContainer.disposeChildren();
 		this.clearExtensionTerminalInputListeners();
 		this.footer.dispose();
 		this.footerDataProvider.dispose();
@@ -4435,7 +4447,7 @@ export class InteractiveMode {
 			this.unsubscribe();
 		}
 		if (this.isInitialized) {
-			this.ui.stop();
+			this.ui.stop(process.env.TMUX ? { clear: true } : undefined);
 			this.isInitialized = false;
 		}
 	}

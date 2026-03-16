@@ -135,7 +135,6 @@ export class BashExecutionComponent extends Container {
 		const hiddenLineCount = availableLines.length - previewLogicalLines.length;
 
 		// Rebuild content container
-		this.contentContainer.removeChild(this.loader);
 		this.contentContainer.clear();
 
 		// Command header
