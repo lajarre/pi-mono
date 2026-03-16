@@ -459,25 +459,37 @@ export class TUI extends Container {
 		this.terminal.write("\x1b[16t");
 	}
 
-	stop(): void {
+	stop(options?: { clear?: boolean }): void {
 		this.stopped = true;
 		clearTimeout(this.cellSizeQueryTimeout);
 		const visibleKittyImageIds = this.collectKittyImageIds(this.previousLines);
-		// Move cursor to the end of the content to prevent overwriting/artifacts on exit
-		if (this.previousLines.length > 0) {
-			const targetRow = this.previousLines.length; // Line after the last content
-			const lineDiff = targetRow - this.hardwareCursorRow;
-			if (lineDiff > 0) {
-				this.terminal.write(`\x1b[${lineDiff}B`);
-			} else if (lineDiff < 0) {
-				this.terminal.write(`\x1b[${-lineDiff}A`);
-			}
-			this.terminal.write("\r\n");
-		}
 
-		if (getCapabilities().images === "kitty") {
-			for (const imageId of visibleKittyImageIds) {
-				this.terminal.write(deleteKittyImage(imageId));
+		if (options?.clear) {
+			let buffer = "\x1b[?2026h\x1b[2J\x1b[H\x1b[3J";
+			if (getCapabilities().images === "kitty") {
+				for (const imageId of visibleKittyImageIds) {
+					buffer += deleteKittyImage(imageId);
+				}
+			}
+			buffer += "\x1b[?2026l";
+			this.terminal.write(buffer);
+		} else {
+			// Move cursor to the end of the content to prevent overwriting/artifacts on exit
+			if (this.previousLines.length > 0) {
+				const targetRow = this.previousLines.length; // Line after the last content
+				const lineDiff = targetRow - this.hardwareCursorRow;
+				if (lineDiff > 0) {
+					this.terminal.write(`\x1b[${lineDiff}B`);
+				} else if (lineDiff < 0) {
+					this.terminal.write(`\x1b[${-lineDiff}A`);
+				}
+				this.terminal.write("\r\n");
+			}
+
+			if (getCapabilities().images === "kitty") {
+				for (const imageId of visibleKittyImageIds) {
+					this.terminal.write(deleteKittyImage(imageId));
+				}
 			}
 		}
 

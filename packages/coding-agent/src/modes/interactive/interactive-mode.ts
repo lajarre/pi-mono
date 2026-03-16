@@ -4428,6 +4428,23 @@ export class InteractiveMode {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;
 		}
+		if (this.autoCompactionLoader) {
+			this.autoCompactionLoader.stop();
+			this.autoCompactionLoader = undefined;
+		}
+		if (this.retryLoader) {
+			this.retryLoader.stop();
+			this.retryLoader = undefined;
+		}
+		this.resetExtensionUI();
+		while (this.ui.hasOverlay()) {
+			this.ui.hideOverlay();
+		}
+		this.headerContainer.clear();
+		this.statusContainer.clear();
+		this.chatContainer.clear();
+		this.pendingMessagesContainer.clear();
+		this.editorContainer.clear();
 		this.clearExtensionTerminalInputListeners();
 		this.footer.dispose();
 		this.footerDataProvider.dispose();
@@ -4435,7 +4452,7 @@ export class InteractiveMode {
 			this.unsubscribe();
 		}
 		if (this.isInitialized) {
-			this.ui.stop();
+			this.ui.stop({ clear: true });
 			this.isInitialized = false;
 		}
 	}
