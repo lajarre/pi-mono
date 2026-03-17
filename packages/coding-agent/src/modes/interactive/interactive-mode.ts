@@ -4742,7 +4742,7 @@ export class InteractiveMode {
 			this.unsubscribe();
 		}
 		if (this.isInitialized) {
-			this.ui.stop();
+			this.ui.stop(process.env.TMUX && process.env.PI_TMUX_IMAGES ? { clear: true } : undefined);
 			this.isInitialized = false;
 		}
 	}
