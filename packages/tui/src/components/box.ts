@@ -44,9 +44,22 @@ export class Box implements Component {
 		this.invalidateCache();
 	}
 
+	disposeChildren(): void {
+		const children = this.children;
+		this.children = [];
+		this.invalidateCache();
+		for (const child of children) {
+			(child as Component & { dispose?: () => void }).dispose?.();
+		}
+	}
+
 	setBgFn(bgFn?: (text: string) => string): void {
 		this.bgFn = bgFn;
 		// Don't invalidate here - we'll detect bgFn changes by sampling output
+	}
+
+	dispose(): void {
+		this.disposeChildren();
 	}
 
 	private invalidateCache(): void {

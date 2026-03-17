@@ -188,6 +188,18 @@ export class Container implements Component {
 		this.children = [];
 	}
 
+	disposeChildren(): void {
+		const children = this.children;
+		this.children = [];
+		for (const child of children) {
+			(child as Component & { dispose?: () => void }).dispose?.();
+		}
+	}
+
+	dispose(): void {
+		this.disposeChildren();
+	}
+
 	invalidate(): void {
 		for (const child of this.children) {
 			child.invalidate?.();
@@ -316,6 +328,7 @@ export class TUI extends Container {
 				const index = this.overlayStack.indexOf(entry);
 				if (index !== -1) {
 					this.overlayStack.splice(index, 1);
+					(component as Component & { dispose?: () => void }).dispose?.();
 					// Restore focus if this overlay had focus
 					if (this.focusedComponent === component) {
 						const topVisible = this.getTopmostVisibleOverlay();
@@ -367,6 +380,7 @@ export class TUI extends Container {
 	hideOverlay(): void {
 		const overlay = this.overlayStack.pop();
 		if (!overlay) return;
+		(overlay.component as Component & { dispose?: () => void }).dispose?.();
 		if (this.focusedComponent === overlay.component) {
 			// Find topmost visible overlay, or fall back to preFocus
 			const topVisible = this.getTopmostVisibleOverlay();

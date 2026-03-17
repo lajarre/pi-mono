@@ -415,6 +415,7 @@ export class ToolExecutionComponent extends Container {
 
 	dispose(): void {
 		this.kittyImageIds.clear();
+		super.dispose();
 	}
 
 	override render(width: number): string[] {

@@ -24,6 +24,7 @@ export class BashExecutionComponent extends Container {
 	private status: "running" | "complete" | "cancelled" | "error" = "running";
 	private exitCode: number | undefined = undefined;
 	private loader: Loader;
+	private colorKey: "dim" | "bashMode";
 	private truncationResult?: TruncationResult;
 	private fullOutputPath?: string;
 	private expanded = false;
@@ -36,8 +37,8 @@ export class BashExecutionComponent extends Container {
 		this.ui = ui;
 
 		// Use dim border for excluded-from-context commands (!! prefix)
-		const colorKey = excludeFromContext ? "dim" : "bashMode";
-		const borderColor = (str: string) => theme.fg(colorKey, str);
+		this.colorKey = excludeFromContext ? "dim" : "bashMode";
+		const borderColor = (str: string) => theme.fg(this.colorKey, str);
 
 		// Add spacer
 		this.addChild(new Spacer(1));
@@ -50,13 +51,13 @@ export class BashExecutionComponent extends Container {
 		this.addChild(this.contentContainer);
 
 		// Command header
-		const header = new Text(theme.fg(colorKey, theme.bold(`$ ${command}`)), 1, 0);
+		const header = new Text(theme.fg(this.colorKey, theme.bold(`$ ${command}`)), 1, 0);
 		this.contentContainer.addChild(header);
 
 		// Loader
 		this.loader = new Loader(
 			ui,
-			(spinner) => theme.fg(colorKey, spinner),
+			(spinner) => theme.fg(this.colorKey, spinner),
 			(text) => theme.fg("muted", text),
 			`Running... (${editorKey("selectCancel")} to cancel)`, // Plain text for loader
 		);
@@ -137,7 +138,7 @@ export class BashExecutionComponent extends Container {
 		this.contentContainer.clear();
 
 		// Command header
-		const header = new Text(theme.fg("bashMode", theme.bold(`$ ${this.command}`)), 1, 0);
+		const header = new Text(theme.fg(this.colorKey, theme.bold(`$ ${this.command}`)), 1, 0);
 		this.contentContainer.addChild(header);
 
 		// Output
@@ -161,6 +162,7 @@ export class BashExecutionComponent extends Container {
 
 		// Loader or status
 		if (this.status === "running") {
+			this.loader.start();
 			this.contentContainer.addChild(this.loader);
 		} else {
 			const statusParts: string[] = [];
