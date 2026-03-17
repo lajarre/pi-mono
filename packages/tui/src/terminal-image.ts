@@ -84,6 +84,14 @@ export function resetCapabilitiesCache(): void {
 const KITTY_PREFIX = "\x1b_G";
 const ITERM2_PREFIX = "\x1b]1337;File=";
 
+function maybeWrapTmuxPassthrough(sequence: string): string {
+	if (!process.env.TMUX) {
+		return sequence;
+	}
+
+	return `\x1bPtmux;${sequence.replaceAll("\x1b", "\x1b\x1b")}\x1b\\`;
+}
+
 export function isImageLine(line: string): boolean {
 	// Fast path: sequence at line start (single-row images)
 	if (line.startsWith(KITTY_PREFIX) || line.startsWith(ITERM2_PREFIX)) {
@@ -113,14 +121,14 @@ export function encodeKitty(
 ): string {
 	const CHUNK_SIZE = 4096;
 
-	const params: string[] = ["a=T", "f=100", "q=2"];
+	const params: string[] = ["a=T", "f=100", "q=2", "C=1"];
 
 	if (options.columns) params.push(`c=${options.columns}`);
 	if (options.rows) params.push(`r=${options.rows}`);
 	if (options.imageId) params.push(`i=${options.imageId}`);
 
 	if (base64Data.length <= CHUNK_SIZE) {
-		return `\x1b_G${params.join(",")};${base64Data}\x1b\\`;
+		return maybeWrapTmuxPassthrough(`\x1b_G${params.join(",")};${base64Data}\x1b\\`);
 	}
 
 	const chunks: string[] = [];
@@ -132,12 +140,12 @@ export function encodeKitty(
 		const isLast = offset + CHUNK_SIZE >= base64Data.length;
 
 		if (isFirst) {
-			chunks.push(`\x1b_G${params.join(",")},m=1;${chunk}\x1b\\`);
+			chunks.push(maybeWrapTmuxPassthrough(`\x1b_G${params.join(",")},m=1;${chunk}\x1b\\`));
 			isFirst = false;
 		} else if (isLast) {
-			chunks.push(`\x1b_Gm=0;${chunk}\x1b\\`);
+			chunks.push(maybeWrapTmuxPassthrough(`\x1b_Gm=0;${chunk}\x1b\\`));
 		} else {
-			chunks.push(`\x1b_Gm=1;${chunk}\x1b\\`);
+			chunks.push(maybeWrapTmuxPassthrough(`\x1b_Gm=1;${chunk}\x1b\\`));
 		}
 
 		offset += CHUNK_SIZE;
@@ -151,7 +159,7 @@ export function encodeKitty(
  * Uses uppercase 'I' to also free the image data.
  */
 export function deleteKittyImage(imageId: number): string {
-	return `\x1b_Ga=d,d=I,i=${imageId}\x1b\\`;
+	return maybeWrapTmuxPassthrough(`\x1b_Ga=d,d=I,i=${imageId}\x1b\\`);
 }
 
 /**
@@ -159,7 +167,7 @@ export function deleteKittyImage(imageId: number): string {
  * Uses uppercase 'A' to also free the image data.
  */
 export function deleteAllKittyImages(): string {
-	return `\x1b_Ga=d,d=A\x1b\\`;
+	return maybeWrapTmuxPassthrough(`\x1b_Ga=d,d=A\x1b\\`);
 }
 
 export function encodeITerm2(
@@ -351,19 +359,42 @@ export function renderImage(
 		return null;
 	}
 
-	const maxWidth = options.maxWidthCells ?? 80;
-	const rows = calculateImageRows(imageDimensions, maxWidth, getCellDimensions());
+	const cellDims = getCellDimensions();
+	const maxWidth = Math.max(1, options.maxWidthCells ?? 80);
+	const maxHeight = options.maxHeightCells !== undefined ? Math.max(1, options.maxHeightCells) : undefined;
+	let columns = maxWidth;
+	let rows = calculateImageRows(imageDimensions, columns, cellDims);
+
+	if (maxHeight !== undefined && rows > maxHeight) {
+		const maxHeightPx = maxHeight * cellDims.heightPx;
+		const scale = maxHeightPx / imageDimensions.heightPx;
+		const constrainedWidthPx = Math.max(cellDims.widthPx, Math.floor(imageDimensions.widthPx * scale));
+		columns = Math.max(1, Math.min(maxWidth, Math.floor(constrainedWidthPx / cellDims.widthPx)));
+		rows = calculateImageRows(imageDimensions, columns, cellDims);
+		while (columns > 1 && rows > maxHeight) {
+			columns -= 1;
+			rows = calculateImageRows(imageDimensions, columns, cellDims);
+		}
+		if (rows > maxHeight) {
+			rows = maxHeight;
+		}
+	}
 
 	if (caps.images === "kitty") {
-		// Only use imageId if explicitly provided - static images don't need IDs
-		const sequence = encodeKitty(base64Data, { columns: maxWidth, rows, imageId: options.imageId });
+		// Kitty `f=100` expects PNG data. Fall back if callers pass another format.
+		if (!getPngDimensions(base64Data)) {
+			return null;
+		}
+
+		// Reusing a stable image ID lets callers replace images cleanly on rerender.
+		const sequence = encodeKitty(base64Data, { columns, rows, imageId: options.imageId });
 		return { sequence, rows, imageId: options.imageId };
 	}
 
 	if (caps.images === "iterm2") {
 		const sequence = encodeITerm2(base64Data, {
-			width: maxWidth,
-			height: "auto",
+			width: columns,
+			height: maxHeight !== undefined ? `${maxHeight}cells` : "auto",
 			preserveAspectRatio: options.preserveAspectRatio ?? true,
 		});
 		return { sequence, rows };
