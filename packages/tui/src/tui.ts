@@ -221,7 +221,6 @@ export class TUI extends Container {
 	private hardwareCursorRow = 0; // Actual terminal cursor row (may differ due to IME positioning)
 	private inputBuffer = ""; // Buffer for parsing terminal responses
 	private cellSizeQueryPending = false;
-	private cellSizeQueryTimeout?: NodeJS.Timeout;
 	private showHardwareCursor = process.env.PI_HARDWARE_CURSOR === "1";
 	private clearOnShrink = process.env.PI_CLEAR_ON_SHRINK === "1"; // Clear empty rows when content shrinks (default: off)
 	private maxLinesRendered = 0; // Track terminal's working area (max lines ever rendered)
@@ -437,28 +436,16 @@ export class TUI extends Container {
 		// Query terminal for cell size in pixels: CSI 16 t
 		// Response format: CSI 6 ; height ; width t
 		this.cellSizeQueryPending = true;
-		clearTimeout(this.cellSizeQueryTimeout);
-		this.cellSizeQueryTimeout = setTimeout(() => {
-			if (!this.cellSizeQueryPending) return;
-			const buffered = this.inputBuffer;
-			this.inputBuffer = "";
-			this.cellSizeQueryPending = false;
-			if (buffered.length > 0) {
-				this.handleInput(buffered);
-			}
-		}, 50);
 		this.terminal.write("\x1b[16t");
 	}
 
 	stop(options?: { clear?: boolean }): void {
 		this.stopped = true;
-		clearTimeout(this.cellSizeQueryTimeout);
-		const visibleKittyImageIds = this.collectKittyImageIds(this.previousLines);
 
 		if (options?.clear) {
 			let buffer = "\x1b[?2026h\x1b[2J\x1b[H";
 			if (getCapabilities().images === "kitty") {
-				for (const imageId of visibleKittyImageIds) {
+				for (const imageId of this.collectKittyImageIds(this.previousLines)) {
 					buffer += deleteKittyImage(imageId);
 				}
 			}
@@ -475,12 +462,6 @@ export class TUI extends Container {
 					this.terminal.write(`\x1b[${-lineDiff}A`);
 				}
 				this.terminal.write("\r\n");
-			}
-
-			if (getCapabilities().images === "kitty") {
-				for (const imageId of visibleKittyImageIds) {
-					this.terminal.write(deleteKittyImage(imageId));
-				}
 			}
 		}
 
@@ -532,11 +513,6 @@ export class TUI extends Container {
 			data = filtered;
 		}
 
-		data = this.consumeCellSizeResponses(data);
-		if (data.length === 0) {
-			return;
-		}
-
 		// Global debug key handler (Shift+Ctrl+D)
 		if (matchesKey(data, "shift+ctrl+d") && this.onDebug) {
 			this.onDebug();
@@ -569,27 +545,6 @@ export class TUI extends Container {
 		}
 	}
 
-	private consumeCellSizeResponses(data: string): string {
-		const responsePattern = /\x1b\[6;(\d+);(\d+)t/g;
-		let sawResponse = false;
-		const stripped = data.replace(responsePattern, (_full, height, width) => {
-			const heightPx = Number.parseInt(height, 10);
-			const widthPx = Number.parseInt(width, 10);
-			if (heightPx > 0 && widthPx > 0) {
-				setCellDimensions({ widthPx, heightPx });
-				sawResponse = true;
-			}
-			return "";
-		});
-		if (sawResponse) {
-			this.invalidate();
-			this.requestRender();
-			this.cellSizeQueryPending = false;
-			clearTimeout(this.cellSizeQueryTimeout);
-		}
-		return stripped;
-	}
-
 	private parseCellSizeResponse(): string {
 		// Response format: ESC [ 6 ; height ; width t
 		// Match the response pattern
@@ -610,12 +565,10 @@ export class TUI extends Container {
 			// Remove the response from buffer
 			this.inputBuffer = this.inputBuffer.replace(responsePattern, "");
 			this.cellSizeQueryPending = false;
-			clearTimeout(this.cellSizeQueryTimeout);
 		}
 
 		// Check if we have a partial cell size response starting (wait for more data)
 		// Patterns that could be incomplete cell size response: \x1b, \x1b[, \x1b[6, \x1b[6;...(no t yet)
-		// A short timeout in queryCellSize() releases buffered user input if no full response arrives.
 		const partialCellSizePattern = /\x1b(\[6?;?[\d;]*)?$/;
 		if (partialCellSizePattern.test(this.inputBuffer)) {
 			// Check if it's actually a complete different escape sequence (ends with a letter)
@@ -631,7 +584,6 @@ export class TUI extends Container {
 		const result = this.inputBuffer;
 		this.inputBuffer = "";
 		this.cellSizeQueryPending = false; // Give up waiting
-		clearTimeout(this.cellSizeQueryTimeout);
 		return result;
 	}
 
