@@ -83,18 +83,23 @@ export class Image implements Component {
 					this.imageId = result.imageId;
 				}
 
-				// Return `rows` lines so TUI accounts for image height.
-				// First (rows-1) lines are empty placeholders the TUI clears.
-				// Last line moves up to the first placeholder row, draws the
-				// image, and for Kitty moves back down so the terminal cursor
-				// ends on the final reserved row as the TUI expects.
-				lines = [];
-				for (let i = 0; i < result.rows - 1; i++) {
-					lines.push("");
+				if (result.placeholderLines) {
+					// Unicode placeholder mode (tmux).
+					// First line carries the upload APC + first placeholder row.
+					// Subsequent lines are pure placeholder text.
+					lines = [result.sequence + result.placeholderLines[0], ...result.placeholderLines.slice(1)];
+				} else {
+					// Direct placement mode (non-tmux).
+					// First (rows-1) lines are empty; last line moves cursor up,
+					// draws the image, and moves back down.
+					lines = [];
+					for (let i = 0; i < result.rows - 1; i++) {
+						lines.push("");
+					}
+					const moveUp = result.rows > 1 ? `\x1b[${result.rows - 1}A` : "";
+					const moveDown = caps.images === "kitty" && result.rows > 1 ? `\x1b[${result.rows - 1}B` : "";
+					lines.push(moveUp + result.sequence + moveDown);
 				}
-				const moveUp = result.rows > 1 ? `\x1b[${result.rows - 1}A` : "";
-				const moveDown = caps.images === "kitty" && result.rows > 1 ? `\x1b[${result.rows - 1}B` : "";
-				lines.push(moveUp + result.sequence + moveDown);
 			} else {
 				const fallback = imageFallback(this.mimeType, this.dimensions, this.options.filename);
 				lines = [this.theme.fallbackColor(fallback)];

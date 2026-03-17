@@ -9,6 +9,7 @@ import {
 	deleteAllKittyImages,
 	deleteKittyImage,
 	encodeKitty,
+	encodeKittyPlaceholder,
 	isImageLine,
 	renderImage,
 	resetCapabilitiesCache,
@@ -86,6 +87,92 @@ describe("terminal image helpers", () => {
 		it("should still recognize wrapped Kitty output as an image line", () => {
 			const sequence = withTmuxEnv("/tmp/tmux,123,0", () => encodeKitty("QUJD"));
 			assert.strictEqual(isImageLine(sequence), true);
+		});
+	});
+
+	describe("Kitty Unicode placeholders (tmux)", () => {
+		it("should produce upload APC + placeholder lines", () => {
+			const result = withTmuxEnv("/tmp/tmux,1,0", () =>
+				encodeKittyPlaceholder("QUJD", { columns: 3, rows: 2, imageId: 42 }),
+			);
+			// Upload sequence must be DCS-wrapped and contain U=1
+			assert.ok(result.uploadSequence.startsWith("\x1bPtmux;"));
+			assert.ok(result.uploadSequence.includes("U=1"));
+			assert.ok(result.uploadSequence.includes("i=42"));
+			// Should have one placeholder line per row
+			assert.strictEqual(result.placeholderLines.length, 2);
+		});
+
+		it("should encode image ID as true-color foreground", () => {
+			// Image ID 42: r=0, g=0, b=42
+			const result = withTmuxEnv("/tmp/tmux,1,0", () =>
+				encodeKittyPlaceholder("QUJD", { columns: 2, rows: 1, imageId: 42 }),
+			);
+			const line = result.placeholderLines[0]!;
+			assert.ok(line.includes("\x1b[38;2;0;0;42m"));
+			assert.ok(line.endsWith("\x1b[39m"));
+		});
+
+		it("should encode image ID with all three RGB components", () => {
+			// ID 0x1A2B3C → r=0x1A=26, g=0x2B=43, b=0x3C=60
+			const result = withTmuxEnv("/tmp/tmux,1,0", () =>
+				encodeKittyPlaceholder("QUJD", { columns: 1, rows: 1, imageId: 0x1a2b3c }),
+			);
+			assert.ok(result.placeholderLines[0]!.includes("\x1b[38;2;26;43;60m"));
+		});
+
+		it("should contain U+10EEEE placeholder characters", () => {
+			const result = withTmuxEnv("/tmp/tmux,1,0", () =>
+				encodeKittyPlaceholder("QUJD", { columns: 4, rows: 1, imageId: 1 }),
+			);
+			const placeholder = String.fromCodePoint(0x10eeee);
+			const line = result.placeholderLines[0]!;
+			// First cell has diacritics, remaining are bare — total 4 occurrences
+			const count = line.split(placeholder).length - 1;
+			assert.strictEqual(count, 4);
+		});
+
+		it("isImageLine should detect placeholder lines", () => {
+			const result = withTmuxEnv("/tmp/tmux,1,0", () =>
+				encodeKittyPlaceholder("QUJD", { columns: 2, rows: 2, imageId: 5 }),
+			);
+			// Both the upload line and pure placeholder lines are image lines
+			assert.strictEqual(isImageLine(result.uploadSequence + result.placeholderLines[0]!), true);
+			assert.strictEqual(isImageLine(result.placeholderLines[1]!), true);
+		});
+
+		it("should chunk large payloads with DCS wrapping per chunk", () => {
+			const bigPayload = "A".repeat(5000);
+			const result = withTmuxEnv("/tmp/tmux,1,0", () =>
+				encodeKittyPlaceholder(bigPayload, { columns: 2, rows: 1, imageId: 7 }),
+			);
+			// Two DCS-wrapped chunks (4096 + 904)
+			assert.strictEqual(result.uploadSequence.match(/\x1bPtmux;/g)?.length, 2);
+		});
+
+		it("renderImage should return placeholderLines inside tmux", () => {
+			withEnv("TERM_PROGRAM", "kitty", () =>
+				withCapabilitiesReset(() => {
+					const result = withTmuxEnv("/tmp/tmux,1,0", () =>
+						renderImage(PNG_1X1_BASE64, { widthPx: 100, heightPx: 50 }, { maxWidthCells: 10, imageId: 99 }),
+					);
+					assert.ok(result);
+					assert.ok(result.placeholderLines);
+					assert.strictEqual(result.placeholderLines.length, result.rows);
+				}),
+			);
+		});
+
+		it("renderImage should NOT return placeholderLines outside tmux", () => {
+			withEnv("TERM_PROGRAM", "kitty", () =>
+				withCapabilitiesReset(() => {
+					const result = withTmuxEnv(undefined, () =>
+						renderImage(PNG_1X1_BASE64, { widthPx: 100, heightPx: 50 }, { maxWidthCells: 10, imageId: 99 }),
+					);
+					assert.ok(result);
+					assert.strictEqual(result.placeholderLines, undefined);
+				}),
+			);
 		});
 	});
 
@@ -248,6 +335,37 @@ describe("terminal image helpers", () => {
 							assert.deepStrictEqual(lines, ["[Image: [image/png] 100x50]"]);
 						}),
 					),
+				),
+			);
+		});
+
+		it("should emit placeholder lines instead of cursor movement in tmux", () => {
+			withTmuxEnv("/tmp/tmux,1,0", () =>
+				withEnv("TERM_PROGRAM", "kitty", () =>
+					withCapabilitiesReset(() => {
+						const image = new Image(
+							PNG_1X1_BASE64,
+							"image/png",
+							{ fallbackColor: (s) => s },
+							{ maxWidthCells: 10 },
+							{ widthPx: 100, heightPx: 50 },
+						);
+
+						const lines = image.render(20);
+						const placeholder = String.fromCodePoint(0x10eeee);
+						// First line contains upload APC + placeholder text
+						assert.ok(lines[0]!.includes("U=1"));
+						assert.ok(lines[0]!.includes(placeholder));
+						// No cursor-up/down escape sequences (direct mode artifact)
+						for (const line of lines) {
+							assert.ok(!line.endsWith("B"), "Should not end with cursor-down");
+						}
+						// All lines should contain placeholder chars
+						// (first line has APC + placeholder, rest are pure placeholder)
+						for (const line of lines) {
+							assert.ok(line.includes(placeholder));
+						}
+					}),
 				),
 			);
 		});
