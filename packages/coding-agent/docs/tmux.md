@@ -9,7 +9,6 @@ Add to `~/.tmux.conf`:
 ```tmux
 set -g extended-keys on
 set -g extended-keys-format csi-u
-set -g allow-passthrough on
 ```
 
 Then restart tmux fully:
@@ -21,15 +20,57 @@ tmux
 
 Pi requests extended key reporting automatically when Kitty keyboard protocol is not available. With `extended-keys-format csi-u`, tmux forwards modified keys in CSI-u format, which is the most reliable configuration.
 
-## Inline Images in Ghostty, Kitty, and WezTerm
+## Inline Images (Kitty Graphics Protocol)
 
-Pi can render inline images via the Kitty graphics protocol. When Pi runs inside tmux, it wraps Kitty image sequences in tmux passthrough automatically, but tmux still needs:
+Pi renders inline images via the Kitty graphics protocol in
+Ghostty, Kitty, and WezTerm. Inside tmux, Pi wraps image
+sequences in DCS passthrough automatically, but tmux must be
+configured to allow it:
 
 ```tmux
 set -g allow-passthrough on
 ```
 
-Without passthrough, tmux filters the image escape sequences before they reach Ghostty, Kitty, or WezTerm, so Pi may think images are supported while nothing renders.
+Without this, tmux filters Kitty image sequences before they
+reach the terminal. Pi detects image support but nothing
+renders.
+
+### Security tradeoff
+
+tmux filters escape sequences by default to prevent
+applications from sending arbitrary data to the terminal
+emulator. `allow-passthrough on` disables that filter for the
+visible pane, allowing any escape sequence to reach the
+terminal directly.
+
+This is the same setting required by other tools that render
+images inside tmux (yazi, kitty icat, etc.).
+
+Risks when passthrough is enabled:
+
+- Untrusted output (`cat`, `curl`, scripts) can send escape
+  sequences directly to the terminal
+- Terminal vulnerabilities become exploitable through escape
+  sequence injection (e.g. CVE-2024-38396 in iTerm2)
+- OSC 52 clipboard access is no longer filtered by tmux
+
+`on` restricts passthrough to the currently visible pane.
+`all` extends it to invisible panes — avoid this unless
+specifically needed.
+
+If you do not want to enable passthrough, inline images will
+not render inside tmux. Everything else (keyboard, text
+rendering, all non-image features) works without it.
+
+### Adding passthrough to the recommended config
+
+If you want inline images, add to `~/.tmux.conf`:
+
+```tmux
+set -g extended-keys on
+set -g extended-keys-format csi-u
+set -g allow-passthrough on
+```
 
 ## Why `csi-u` Is Recommended
 
@@ -68,5 +109,7 @@ This affects the default keybindings (`Enter` to submit, `Shift+Enter` for newli
 
 ## Requirements
 
-- tmux 3.3 or later for `allow-passthrough` (run `tmux -V` to check)
-- A terminal emulator that supports extended keys and Kitty graphics passthrough where relevant (Ghostty, Kitty, iTerm2, WezTerm, Windows Terminal)
+- tmux 3.2 or later for extended keys (run `tmux -V` to check)
+- tmux 3.3 or later for `allow-passthrough` (inline images)
+- A terminal emulator that supports extended keys (Ghostty,
+  Kitty, iTerm2, WezTerm, Windows Terminal)

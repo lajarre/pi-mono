@@ -115,28 +115,30 @@ describe("terminal image helpers", () => {
 		});
 
 		it("should reuse an explicitly provided Kitty image ID across rerenders", () => {
-			withEnv("TERM_PROGRAM", "kitty", () =>
-				withCapabilitiesReset(() => {
-					const image = new Image(
-						PNG_1X1_BASE64,
-						"image/png",
-						{ fallbackColor: (s) => s },
-						{ maxWidthCells: 10, imageId: 7 },
-						{ widthPx: 100, heightPx: 50 },
-					);
+			withTmuxEnv(undefined, () =>
+				withEnv("TERM_PROGRAM", "kitty", () =>
+					withCapabilitiesReset(() => {
+						const image = new Image(
+							PNG_1X1_BASE64,
+							"image/png",
+							{ fallbackColor: (s) => s },
+							{ maxWidthCells: 10, imageId: 7 },
+							{ widthPx: 100, heightPx: 50 },
+						);
 
-					const firstLines = image.render(20);
-					assert.strictEqual(image.getImageId(), 7);
-					assert.ok(firstLines.at(-1)?.includes("i=7"));
-					assert.ok(firstLines.at(-1)?.startsWith(`\x1b[${firstLines.length - 1}A`));
-					assert.ok(firstLines.at(-1)?.endsWith(`\x1b[${firstLines.length - 1}B`));
+						const firstLines = image.render(20);
+						assert.strictEqual(image.getImageId(), 7);
+						assert.ok(firstLines.at(-1)?.includes("i=7"));
+						assert.ok(firstLines.at(-1)?.startsWith(`\x1b[${firstLines.length - 1}A`));
+						assert.ok(firstLines.at(-1)?.endsWith(`\x1b[${firstLines.length - 1}B`));
 
-					image.invalidate();
-					const secondLines = image.render(20);
-					assert.strictEqual(image.getImageId(), 7);
-					assert.ok(secondLines.at(-1)?.includes("i=7"));
-					assert.ok(secondLines.at(-1)?.endsWith(`\x1b[${secondLines.length - 1}B`));
-				}),
+						image.invalidate();
+						const secondLines = image.render(20);
+						assert.strictEqual(image.getImageId(), 7);
+						assert.ok(secondLines.at(-1)?.includes("i=7"));
+						assert.ok(secondLines.at(-1)?.endsWith(`\x1b[${secondLines.length - 1}B`));
+					}),
+				),
 			);
 		});
 
