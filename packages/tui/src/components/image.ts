@@ -81,15 +81,22 @@ export class Image implements Component {
 					this.imageId = result.imageId;
 				}
 
-				// Direct placement.
-				// First (rows-1) lines are empty; last line moves cursor up,
-				// draws the image.
-				lines = [];
-				for (let i = 0; i < result.rows - 1; i++) {
-					lines.push("");
+				if (result.placeholderLines) {
+					// Unicode placeholder mode (tmux).
+					// First line carries the upload APC + first placeholder row.
+					// Subsequent lines are pure placeholder text.
+					lines = [result.sequence + result.placeholderLines[0], ...result.placeholderLines.slice(1)];
+				} else {
+					// Direct placement mode (non-tmux).
+					// First (rows-1) lines are empty; last line moves cursor up,
+					// draws the image.
+					lines = [];
+					for (let i = 0; i < result.rows - 1; i++) {
+						lines.push("");
+					}
+					const moveUp = result.rows > 1 ? `\x1b[${result.rows - 1}A` : "";
+					lines.push(moveUp + result.sequence);
 				}
-				const moveUp = result.rows > 1 ? `\x1b[${result.rows - 1}A` : "";
-				lines.push(moveUp + result.sequence);
 			} else {
 				const fallback = imageFallback(this.mimeType, this.dimensions, this.options.filename);
 				lines = [this.theme.fallbackColor(fallback)];
