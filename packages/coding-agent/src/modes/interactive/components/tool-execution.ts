@@ -1,5 +1,6 @@
 import * as os from "node:os";
 import {
+	allocateImageId,
 	Box,
 	Container,
 	getCapabilities,
@@ -75,6 +76,13 @@ type WriteHighlightCache = {
 	highlightedLines: string[];
 };
 
+type ConvertedImage = {
+	sourceData: string;
+	sourceMimeType: string;
+	data: string;
+	mimeType: string;
+};
+
 /**
  * Component that renders a tool call with its result (updateable)
  */
@@ -99,8 +107,11 @@ export class ToolExecutionComponent extends Container {
 	// Cached edit diff preview (computed when args arrive, before tool executes)
 	private editDiffPreview?: EditDiffResult | EditDiffError;
 	private editDiffArgsKey?: string; // Track which args the preview is for
-	// Cached converted images for Kitty protocol (which requires PNG), keyed by index
-	private convertedImages: Map<number, { data: string; mimeType: string }> = new Map();
+	// Cached converted images for Kitty protocol (which requires PNG), keyed by image index and source payload.
+	private convertedImages: Map<number, ConvertedImage> = new Map();
+	// Stable Kitty image IDs keyed by result image index so rebuilds replace
+	// the same image instead of stacking duplicate placements.
+	private kittyImageIds: Map<number, number> = new Map();
 	// Incremental syntax highlighting cache for write tool call args
 	private writeHighlightCache?: WriteHighlightCache;
 	// When true, this component intentionally renders no lines
@@ -332,18 +343,54 @@ export class ToolExecutionComponent extends Container {
 
 		const imageBlocks = this.result.content?.filter((c: any) => c.type === "image") || [];
 
+		for (const [index, converted] of this.convertedImages) {
+			const img = imageBlocks[index];
+			if (
+				!img?.data ||
+				!img?.mimeType ||
+				img.data !== converted.sourceData ||
+				img.mimeType !== converted.sourceMimeType
+			) {
+				this.convertedImages.delete(index);
+			}
+		}
+
 		for (let i = 0; i < imageBlocks.length; i++) {
 			const img = imageBlocks[i];
 			if (!img.data || !img.mimeType) continue;
-			// Skip if already PNG or already converted
+			// Skip if already PNG or already converted for this exact source image
 			if (img.mimeType === "image/png") continue;
-			if (this.convertedImages.has(i)) continue;
+			const cached = this.convertedImages.get(i);
+			if (cached && cached.sourceData === img.data && cached.sourceMimeType === img.mimeType) continue;
 
 			// Convert async
 			const index = i;
-			convertToPng(img.data, img.mimeType).then((converted) => {
+			const sourceData = img.data;
+			const sourceMimeType = img.mimeType;
+
+			// Mark as pending/cached to prevent concurrent conversions or infinite retry loops on failure
+			this.convertedImages.set(index, {
+				sourceData,
+				sourceMimeType,
+				data: sourceData,
+				mimeType: sourceMimeType,
+			});
+
+			convertToPng(sourceData, sourceMimeType).then((converted) => {
+				const currentImage = this.result?.content?.filter((c: any) => c.type === "image")?.[index] || undefined;
+				if (!currentImage?.data || !currentImage?.mimeType) {
+					return;
+				}
+				if (currentImage.data !== sourceData || currentImage.mimeType !== sourceMimeType) {
+					return;
+				}
 				if (converted) {
-					this.convertedImages.set(index, converted);
+					this.convertedImages.set(index, {
+						sourceData,
+						sourceMimeType,
+						data: converted.data,
+						mimeType: converted.mimeType,
+					});
 					this.updateDisplay();
 					this.ui.requestRender();
 				}
@@ -364,6 +411,10 @@ export class ToolExecutionComponent extends Container {
 	override invalidate(): void {
 		super.invalidate();
 		this.updateDisplay();
+	}
+
+	dispose(): void {
+		this.kittyImageIds.clear();
 	}
 
 	override render(width: number): string[] {
@@ -468,31 +519,52 @@ export class ToolExecutionComponent extends Container {
 		if (this.result) {
 			const imageBlocks = this.result.content?.filter((c: any) => c.type === "image") || [];
 			const caps = getCapabilities();
+			const activeKittyImageIndexes = new Set<number>();
 
 			for (let i = 0; i < imageBlocks.length; i++) {
 				const img = imageBlocks[i];
-				if (caps.images && this.showImages && img.data && img.mimeType) {
-					// Use converted PNG for Kitty protocol if available
-					const converted = this.convertedImages.get(i);
-					const imageData = converted?.data ?? img.data;
-					const imageMimeType = converted?.mimeType ?? img.mimeType;
+				if (!caps.images || !this.showImages || !img.data || !img.mimeType) {
+					continue;
+				}
 
-					// For Kitty, skip non-PNG images that haven't been converted yet
-					if (caps.images === "kitty" && imageMimeType !== "image/png") {
-						continue;
+				// Use converted PNG for Kitty protocol if available for this exact source image.
+				const cached = this.convertedImages.get(i);
+				const converted =
+					cached && cached.sourceData === img.data && cached.sourceMimeType === img.mimeType ? cached : undefined;
+				const imageData = converted?.data ?? img.data;
+				const imageMimeType = converted?.mimeType ?? img.mimeType;
+
+				if (caps.images === "kitty" && imageMimeType !== "image/png") {
+					continue;
+				}
+
+				let imageId: number | undefined;
+				if (caps.images === "kitty") {
+					activeKittyImageIndexes.add(i);
+					imageId = this.kittyImageIds.get(i);
+					if (imageId === undefined) {
+						imageId = allocateImageId();
+						this.kittyImageIds.set(i, imageId);
 					}
+				}
 
-					const spacer = new Spacer(1);
-					this.addChild(spacer);
-					this.imageSpacers.push(spacer);
-					const imageComponent = new Image(
-						imageData,
-						imageMimeType,
-						{ fallbackColor: (s: string) => theme.fg("toolOutput", s) },
-						{ maxWidthCells: 60 },
-					);
-					this.imageComponents.push(imageComponent);
-					this.addChild(imageComponent);
+				const spacer = new Spacer(1);
+				this.addChild(spacer);
+				this.imageSpacers.push(spacer);
+				const imageComponent = new Image(
+					imageData,
+					imageMimeType,
+					{ fallbackColor: (s: string) => theme.fg("toolOutput", s) },
+					{ maxWidthCells: 60, imageId },
+				);
+				this.imageComponents.push(imageComponent);
+				this.addChild(imageComponent);
+			}
+
+			if (caps.images === "kitty") {
+				for (const index of [...this.kittyImageIds.keys()]) {
+					if (activeKittyImageIndexes.has(index)) continue;
+					this.kittyImageIds.delete(index);
 				}
 			}
 		}
