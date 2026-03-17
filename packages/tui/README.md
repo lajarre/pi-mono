@@ -92,7 +92,7 @@ const handle = tui.showOverlay(component, {
   margin: { top: 1, right: 2, bottom: 1, left: 2 },
 
   // Responsive visibility
-  visible: (termWidth, termHeight) => termWidth >= 100  // Hide on narrow terminals
+  visible: (termWidth, termHeight) => termWidth >= 100, // Hide on narrow terminals
 
   // Focus behavior
   nonCapturing: true       // Don't auto-focus when shown
@@ -130,7 +130,7 @@ All components implement:
 interface Component {
   render(width: number): string[];
   handleInput?(data: string): void;
-  invalidate?(): void;
+  invalidate(): void;
 }
 ```
 
@@ -138,7 +138,7 @@ interface Component {
 |--------|-------------|
 | `render(width)` | Returns an array of strings, one per line. Each line **must not exceed `width`** or the TUI will error. Use `truncateToWidth()` or manual wrapping to ensure this. |
 | `handleInput?(data)` | Called when the component has focus and receives keyboard input. The `data` string contains raw terminal input (may include ANSI escape sequences). |
-| `invalidate?()` | Called to clear any cached render state. Components should re-render from scratch on the next `render()` call. |
+| `invalidate()` | Called to clear any cached render state. Components should re-render from scratch on the next `render()` call. |
 
 The TUI appends a full SGR reset and OSC 8 reset at the end of each rendered line. Styles do not carry across lines. If you emit multi-line text with styling, reapply styles per line or use `wrapTextWithAnsi()` so styles are preserved for each wrapped line.
 
@@ -496,8 +496,8 @@ interface ImageTheme {
 
 interface ImageOptions {
   maxWidthCells?: number;
-  maxHeightCells?: number;
   filename?: string;
+  imageId?: number; // optional stable Kitty image ID for replace/rerender use cases
 }
 
 const image = new Image(
@@ -509,7 +509,7 @@ const image = new Image(
 tui.addChild(image);
 ```
 
-Supported formats: PNG, JPEG, GIF, WebP. Dimensions are parsed from the image headers automatically.
+Supported input formats for dimension parsing: PNG, JPEG, GIF, WebP. iTerm2 renders all of them inline. Kitty-protocol terminals (Kitty, Ghostty, WezTerm) require PNG payloads, so callers should pass PNG data there or pre-convert non-PNG images before rendering. If you need a Kitty image to be replaced cleanly across rerenders, pass a stable `imageId`.
 
 ## Autocomplete
 

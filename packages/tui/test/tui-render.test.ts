@@ -399,3 +399,27 @@ describe("TUI differential rendering", () => {
 		tui.stop();
 	});
 });
+
+describe("TUI stop", () => {
+	it("clears the visible frame when requested", async () => {
+		const terminal = new VirtualTerminal(40, 10);
+		const tui = new TUI(terminal);
+		const component = new TestComponent();
+		tui.addChild(component);
+
+		component.lines = ["Line 0", "Line 1", "Line 2"];
+		tui.start();
+		await terminal.flush();
+
+		tui.stop({ clear: true });
+		await terminal.flush();
+
+		const viewport = terminal.getViewport();
+		assert.strictEqual(viewport[0]?.trim(), "", "Line 0 should be cleared on stop");
+		assert.strictEqual(viewport[1]?.trim(), "", "Line 1 should be cleared on stop");
+		assert.strictEqual(viewport[2]?.trim(), "", "Line 2 should be cleared on stop");
+
+		const cursor = terminal.getCursorPosition();
+		assert.deepStrictEqual(cursor, { x: 0, y: 0 });
+	});
+});
