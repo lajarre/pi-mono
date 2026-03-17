@@ -18,7 +18,6 @@ export interface ImageDimensions {
 
 export interface ImageRenderOptions {
 	maxWidthCells?: number;
-	maxHeightCells?: number;
 	preserveAspectRatio?: boolean;
 	/** Kitty image ID. If provided, reuses/replaces existing image with this ID. */
 	imageId?: number;
@@ -84,6 +83,14 @@ export function resetCapabilitiesCache(): void {
 const KITTY_PREFIX = "\x1b_G";
 const ITERM2_PREFIX = "\x1b]1337;File=";
 
+function maybeWrapTmuxPassthrough(sequence: string): string {
+	if (!process.env.TMUX) {
+		return sequence;
+	}
+
+	return `\x1bPtmux;${sequence.replaceAll("\x1b", "\x1b\x1b")}\x1b\\`;
+}
+
 export function isImageLine(line: string): boolean {
 	// Fast path: sequence at line start (single-row images)
 	if (line.startsWith(KITTY_PREFIX) || line.startsWith(ITERM2_PREFIX)) {
@@ -97,10 +104,11 @@ export function isImageLine(line: string): boolean {
  * Generate a random image ID for Kitty graphics protocol.
  * Uses random IDs to avoid collisions between different module instances
  * (e.g., main app vs extensions).
+ * Range limited to 24-bit [1, 0xffffff] so IDs can be encoded in
+ * true-color foreground values for Unicode placeholder mode.
  */
 export function allocateImageId(): number {
-	// Use random ID in range [1, 0xffffffff] to avoid collisions
-	return Math.floor(Math.random() * 0xfffffffe) + 1;
+	return Math.floor(Math.random() * 0xffffff) + 1;
 }
 
 export function encodeKitty(
@@ -120,7 +128,7 @@ export function encodeKitty(
 	if (options.imageId) params.push(`i=${options.imageId}`);
 
 	if (base64Data.length <= CHUNK_SIZE) {
-		return `\x1b_G${params.join(",")};${base64Data}\x1b\\`;
+		return maybeWrapTmuxPassthrough(`\x1b_G${params.join(",")};${base64Data}\x1b\\`);
 	}
 
 	const chunks: string[] = [];
@@ -132,12 +140,12 @@ export function encodeKitty(
 		const isLast = offset + CHUNK_SIZE >= base64Data.length;
 
 		if (isFirst) {
-			chunks.push(`\x1b_G${params.join(",")},m=1;${chunk}\x1b\\`);
+			chunks.push(maybeWrapTmuxPassthrough(`\x1b_G${params.join(",")},m=1;${chunk}\x1b\\`));
 			isFirst = false;
 		} else if (isLast) {
-			chunks.push(`\x1b_Gm=0;${chunk}\x1b\\`);
+			chunks.push(maybeWrapTmuxPassthrough(`\x1b_Gm=0;${chunk}\x1b\\`));
 		} else {
-			chunks.push(`\x1b_Gm=1;${chunk}\x1b\\`);
+			chunks.push(maybeWrapTmuxPassthrough(`\x1b_Gm=1;${chunk}\x1b\\`));
 		}
 
 		offset += CHUNK_SIZE;
@@ -151,7 +159,7 @@ export function encodeKitty(
  * Uses uppercase 'I' to also free the image data.
  */
 export function deleteKittyImage(imageId: number): string {
-	return `\x1b_Ga=d,d=I,i=${imageId}\x1b\\`;
+	return maybeWrapTmuxPassthrough(`\x1b_Ga=d,d=I,i=${imageId}\x1b\\`);
 }
 
 /**
@@ -159,7 +167,7 @@ export function deleteKittyImage(imageId: number): string {
  * Uses uppercase 'A' to also free the image data.
  */
 export function deleteAllKittyImages(): string {
-	return `\x1b_Ga=d,d=A\x1b\\`;
+	return maybeWrapTmuxPassthrough(`\x1b_Ga=d,d=A\x1b\\`);
 }
 
 export function encodeITerm2(
@@ -355,7 +363,14 @@ export function renderImage(
 	const rows = calculateImageRows(imageDimensions, maxWidth, getCellDimensions());
 
 	if (caps.images === "kitty") {
-		// Only use imageId if explicitly provided - static images don't need IDs
+		// In placeholder mode (PI_TMUX_IMAGES), Kitty `f=100` requires
+		// valid PNG data.  Without the flag, direct placement handles
+		// whatever the terminal accepts, so skip the check.
+		if (process.env.PI_TMUX_IMAGES && !getPngDimensions(base64Data)) {
+			return null;
+		}
+
+		// Direct placement.
 		const sequence = encodeKitty(base64Data, { columns: maxWidth, rows, imageId: options.imageId });
 		return { sequence, rows, imageId: options.imageId };
 	}

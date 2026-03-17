@@ -3,7 +3,7 @@ import { Image } from "../src/components/image.js";
 import { Spacer } from "../src/components/spacer.js";
 import { Text } from "../src/components/text.js";
 import { ProcessTerminal } from "../src/terminal.js";
-import { getCapabilities, getImageDimensions } from "../src/terminal-image.js";
+import { allocateImageId, getCapabilities, getImageDimensions } from "../src/terminal-image.js";
 import { TUI } from "../src/tui.js";
 
 const testImagePath = process.argv[2] || "/tmp/test-image.png";
@@ -28,13 +28,20 @@ console.log("");
 
 const terminal = new ProcessTerminal();
 const tui = new TUI(terminal);
+const imageId = getCapabilities().images === "kitty" ? allocateImageId() : undefined;
 
 tui.addChild(new Text("Image Rendering Test", 1, 1));
 tui.addChild(new Spacer(1));
 
 if (dims) {
 	tui.addChild(
-		new Image(base64Data, "image/png", { fallbackColor: (s) => `\x1b[33m${s}\x1b[0m` }, { maxWidthCells: 60 }, dims),
+		new Image(
+			base64Data,
+			"image/png",
+			{ fallbackColor: (s) => `\x1b[33m${s}\x1b[0m` },
+			{ maxWidthCells: 60, imageId },
+			dims,
+		),
 	);
 } else {
 	tui.addChild(new Text("Could not parse image dimensions", 1, 0));
