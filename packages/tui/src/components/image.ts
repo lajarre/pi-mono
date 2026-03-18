@@ -66,7 +66,12 @@ export class Image implements Component {
 		let lines: string[];
 
 		if (caps.images) {
-			if (caps.images === "kitty" && this.imageId === undefined && this.mimeType === "image/png") {
+			if (
+				caps.images === "kitty" &&
+				this.imageId === undefined &&
+				this.mimeType === "image/png" &&
+				process.env.PI_TMUX_IMAGES
+			) {
 				this.imageId = allocateImageId();
 			}
 

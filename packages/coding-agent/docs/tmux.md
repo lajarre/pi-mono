@@ -31,9 +31,17 @@ configured to allow it:
 set -g allow-passthrough on
 ```
 
-Without this, tmux filters Kitty image sequences before they
-reach the terminal. Pi detects image support but nothing
-renders.
+Then export the environment variable before running Pi:
+
+    export PI_TMUX_IMAGES=1
+
+This enables DCS passthrough wrapping and Unicode placeholder
+mode for images inside tmux. Without it, Pi does not attempt
+to render images in tmux (matching the default behavior).
+
+Without `allow-passthrough on`, tmux filters Kitty image
+sequences before they reach the terminal. Pi detects image
+support but nothing renders.
 
 ### Security tradeoff
 
@@ -71,6 +79,10 @@ set -g extended-keys on
 set -g extended-keys-format csi-u
 set -g allow-passthrough on
 ```
+
+And set the environment variable (e.g. in your shell profile):
+
+    export PI_TMUX_IMAGES=1
 
 ## Why `csi-u` Is Recommended
 
