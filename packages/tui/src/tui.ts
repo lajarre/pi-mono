@@ -932,6 +932,20 @@ export class TUI extends Container {
 
 		newLines = this.applyLineResets(newLines);
 
+		// Compute Kitty image deletions: IDs present in previous frame but absent in new frame
+		let kittyDeleteBuffer = "";
+		if (getCapabilities().images === "kitty" && this.previousLines.length > 0) {
+			const oldIds = this.collectKittyImageIds(this.previousLines);
+			if (oldIds.size > 0) {
+				const newIds = this.collectKittyImageIds(newLines);
+				for (const id of oldIds) {
+					if (!newIds.has(id)) {
+						kittyDeleteBuffer += deleteKittyImage(id);
+					}
+				}
+			}
+		}
+
 		// Width or height changed - need full re-render
 		const widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;
 		const heightChanged = this.previousHeight !== 0 && this.previousHeight !== height;
@@ -940,6 +954,7 @@ export class TUI extends Container {
 		const fullRender = (clear: boolean): void => {
 			this.fullRedrawCount += 1;
 			let buffer = "\x1b[?2026h"; // Begin synchronized output
+			buffer += kittyDeleteBuffer;
 			if (clear) buffer += "\x1b[2J\x1b[H\x1b[3J"; // Clear screen, home, then clear scrollback
 			for (let i = 0; i < newLines.length; i++) {
 				if (i > 0) buffer += "\r\n";
@@ -1078,6 +1093,7 @@ export class TUI extends Container {
 		// Render from first changed line to end
 		// Build buffer with all updates wrapped in synchronized output
 		let buffer = "\x1b[?2026h"; // Begin synchronized output
+		buffer += kittyDeleteBuffer;
 		const prevViewportBottom = prevViewportTop + height - 1;
 		const moveTargetRow = appendStart ? firstChanged - 1 : firstChanged;
 		if (moveTargetRow > prevViewportBottom) {
