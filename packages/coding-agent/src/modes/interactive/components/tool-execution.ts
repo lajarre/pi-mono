@@ -91,6 +91,7 @@ export class ToolExecutionComponent extends Container {
 	private contentText: Text; // For built-in tools (with its own padding/bg)
 	private imageComponents: Image[] = [];
 	private imageSpacers: Spacer[] = [];
+	private imageFallbackTexts: Text[] = [];
 	private toolName: string;
 	private args: any;
 	private expanded = false;
@@ -516,6 +517,10 @@ export class ToolExecutionComponent extends Container {
 			this.removeChild(spacer);
 		}
 		this.imageSpacers = [];
+		for (const text of this.imageFallbackTexts) {
+			this.removeChild(text);
+		}
+		this.imageFallbackTexts = [];
 
 		if (this.result) {
 			const imageBlocks = this.result.content?.filter((c: any) => c.type === "image") || [];
@@ -536,6 +541,14 @@ export class ToolExecutionComponent extends Container {
 				const imageMimeType = converted?.mimeType ?? img.mimeType;
 
 				if (caps.images === "kitty" && imageMimeType !== "image/png") {
+					// Kitty f=100 requires PNG; show fallback text for other formats.
+					const spacer = new Spacer(1);
+					this.addChild(spacer);
+					this.imageSpacers.push(spacer);
+					const dims = getImageDimensions(img.data, img.mimeType) ?? undefined;
+					const fallbackText = new Text(theme.fg("toolOutput", imageFallback(img.mimeType, dims)), 0, 0);
+					this.imageFallbackTexts.push(fallbackText);
+					this.addChild(fallbackText);
 					continue;
 				}
 
@@ -571,7 +584,8 @@ export class ToolExecutionComponent extends Container {
 		}
 
 		if (!useBuiltInRenderer && this.toolDefinition) {
-			this.hideComponent = !customRendererHasContent && this.imageComponents.length === 0;
+			this.hideComponent =
+				!customRendererHasContent && this.imageComponents.length === 0 && this.imageFallbackTexts.length === 0;
 		}
 	}
 
