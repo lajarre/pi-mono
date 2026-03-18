@@ -14,6 +14,7 @@ export interface ImageTheme {
 
 export interface ImageOptions {
 	maxWidthCells?: number;
+	maxHeightCells?: number;
 	filename?: string;
 	/** Kitty image ID. If provided, reuses this ID (for animations/updates). */
 	imageId?: number;
@@ -77,6 +78,7 @@ export class Image implements Component {
 
 			const result = renderImage(this.base64Data, this.dimensions, {
 				maxWidthCells: maxWidth,
+				maxHeightCells: this.options.maxHeightCells,
 				imageId: this.imageId,
 			});
 

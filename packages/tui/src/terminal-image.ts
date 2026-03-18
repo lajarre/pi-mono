@@ -18,6 +18,7 @@ export interface ImageDimensions {
 
 export interface ImageRenderOptions {
 	maxWidthCells?: number;
+	maxHeightCells?: number;
 	preserveAspectRatio?: boolean;
 	/** Kitty image ID. If provided, reuses/replaces existing image with this ID. */
 	imageId?: number;
@@ -515,8 +516,26 @@ export function renderImage(
 		return null;
 	}
 
+	const cellDims = getCellDimensions();
 	const maxWidth = options.maxWidthCells ?? 80;
-	const rows = calculateImageRows(imageDimensions, maxWidth, getCellDimensions());
+	const maxHeight = options.maxHeightCells !== undefined ? Math.max(1, options.maxHeightCells) : undefined;
+	let columns = maxWidth;
+	let rows = calculateImageRows(imageDimensions, columns, cellDims);
+
+	if (maxHeight !== undefined && rows > maxHeight) {
+		const maxHeightPx = maxHeight * cellDims.heightPx;
+		const scale = maxHeightPx / imageDimensions.heightPx;
+		const constrainedWidthPx = Math.max(cellDims.widthPx, Math.floor(imageDimensions.widthPx * scale));
+		columns = Math.max(1, Math.min(maxWidth, Math.floor(constrainedWidthPx / cellDims.widthPx)));
+		rows = calculateImageRows(imageDimensions, columns, cellDims);
+		while (columns > 1 && rows > maxHeight) {
+			columns -= 1;
+			rows = calculateImageRows(imageDimensions, columns, cellDims);
+		}
+		if (rows > maxHeight) {
+			rows = maxHeight;
+		}
+	}
 
 	if (caps.images === "kitty") {
 		// Kitty f=100 expects PNG data. Return null for non-PNG so
@@ -529,7 +548,7 @@ export function renderImage(
 		// pane on splits/resizes instead of leaking to adjacent panes.
 		if (process.env.TMUX && process.env.PI_TMUX_IMAGES && options.imageId) {
 			const { uploadSequence, placeholderLines } = encodeKittyPlaceholder(base64Data, {
-				columns: maxWidth,
+				columns,
 				rows,
 				imageId: options.imageId,
 			});
@@ -542,14 +561,14 @@ export function renderImage(
 		}
 
 		// Direct placement (no tmux).
-		const sequence = encodeKitty(base64Data, { columns: maxWidth, rows, imageId: options.imageId });
+		const sequence = encodeKitty(base64Data, { columns, rows, imageId: options.imageId });
 		return { sequence, rows, imageId: options.imageId };
 	}
 
 	if (caps.images === "iterm2") {
 		const sequence = encodeITerm2(base64Data, {
-			width: maxWidth,
-			height: "auto",
+			width: columns,
+			height: maxHeight !== undefined ? `${maxHeight}cells` : "auto",
 			preserveAspectRatio: options.preserveAspectRatio ?? true,
 		});
 		return { sequence, rows };
