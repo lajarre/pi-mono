@@ -466,6 +466,15 @@ export class TUI extends Container {
 			buffer += "\x1b[?2026l";
 			this.terminal.write(buffer);
 		} else {
+			if (getCapabilities().images === "kitty") {
+				let deleteBuffer = "";
+				for (const imageId of this.collectKittyImageIds(this.previousLines)) {
+					deleteBuffer += deleteKittyImage(imageId);
+				}
+				if (deleteBuffer) {
+					this.terminal.write(deleteBuffer);
+				}
+			}
 			// Move cursor to the end of the content to prevent overwriting/artifacts on exit
 			if (this.previousLines.length > 0) {
 				const targetRow = this.previousLines.length; // Line after the last content
