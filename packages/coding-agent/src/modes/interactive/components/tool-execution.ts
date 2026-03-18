@@ -388,7 +388,7 @@ export class ToolExecutionComponent extends Container {
 				}
 
 				let imageId: number | undefined;
-				if (caps.images === "kitty") {
+				if (caps.images === "kitty" && process.env.PI_TMUX_IMAGES) {
 					activeKittyImageIndexes.add(i);
 					imageId = this.kittyImageIds.get(i);
 					if (imageId === undefined) {
