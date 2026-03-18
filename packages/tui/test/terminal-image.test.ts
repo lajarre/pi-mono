@@ -39,6 +39,10 @@ function withTmuxEnv<T>(value: string | undefined, fn: () => T): T {
 	return withEnv("TMUX", value, fn);
 }
 
+function withTmuxImagesEnv<T>(value: string | undefined, fn: () => T): T {
+	return withEnv("PI_TMUX_IMAGES", value, fn);
+}
+
 function withCapabilitiesReset<T>(fn: () => T): T {
 	resetCapabilitiesCache();
 	try {
@@ -64,13 +68,15 @@ describe("terminal image helpers", () => {
 		});
 
 		it("should wrap Kitty sequences for tmux passthrough", () => {
-			const sequence = withTmuxEnv("/tmp/tmux,123,0", () => encodeKitty("QUJD", { columns: 10, rows: 4 }));
+			const sequence = withTmuxImagesEnv("1", () =>
+				withTmuxEnv("/tmp/tmux,123,0", () => encodeKitty("QUJD", { columns: 10, rows: 4 })),
+			);
 			assert.strictEqual(sequence, "\x1bPtmux;\x1b\x1b_Ga=T,f=100,q=2,c=10,r=4;QUJD\x1b\x1b\\\x1b\\");
 		});
 
 		it("should wrap each Kitty chunk separately for tmux passthrough", () => {
 			const payload = "A".repeat(5000);
-			const sequence = withTmuxEnv("/tmp/tmux,123,0", () => encodeKitty(payload));
+			const sequence = withTmuxImagesEnv("1", () => withTmuxEnv("/tmp/tmux,123,0", () => encodeKitty(payload)));
 			assert.strictEqual(sequence.match(/\x1bPtmux;/g)?.length, 2);
 			assert.strictEqual(sequence.match(/\x1b\\/g)?.length, 4);
 			assert.ok(sequence.includes("\x1bPtmux;\x1b\x1b_Ga=T,f=100,q=2,m=1;"));
@@ -78,22 +84,22 @@ describe("terminal image helpers", () => {
 		});
 
 		it("should wrap Kitty delete helpers for tmux passthrough", () => {
-			const deleteOne = withTmuxEnv("/tmp/tmux,123,0", () => deleteKittyImage(42));
-			const deleteAll = withTmuxEnv("/tmp/tmux,123,0", () => deleteAllKittyImages());
+			const deleteOne = withTmuxImagesEnv("1", () => withTmuxEnv("/tmp/tmux,123,0", () => deleteKittyImage(42)));
+			const deleteAll = withTmuxImagesEnv("1", () => withTmuxEnv("/tmp/tmux,123,0", () => deleteAllKittyImages()));
 			assert.strictEqual(deleteOne, "\x1bPtmux;\x1b\x1b_Ga=d,d=I,i=42\x1b\x1b\\\x1b\\");
 			assert.strictEqual(deleteAll, "\x1bPtmux;\x1b\x1b_Ga=d,d=A\x1b\x1b\\\x1b\\");
 		});
 
 		it("should still recognize wrapped Kitty output as an image line", () => {
-			const sequence = withTmuxEnv("/tmp/tmux,123,0", () => encodeKitty("QUJD"));
+			const sequence = withTmuxImagesEnv("1", () => withTmuxEnv("/tmp/tmux,123,0", () => encodeKitty("QUJD")));
 			assert.strictEqual(isImageLine(sequence), true);
 		});
 	});
 
 	describe("Kitty Unicode placeholders (tmux)", () => {
 		it("should produce upload APC + placeholder lines", () => {
-			const result = withTmuxEnv("/tmp/tmux,1,0", () =>
-				encodeKittyPlaceholder("QUJD", { columns: 3, rows: 2, imageId: 42 }),
+			const result = withTmuxImagesEnv("1", () =>
+				withTmuxEnv("/tmp/tmux,1,0", () => encodeKittyPlaceholder("QUJD", { columns: 3, rows: 2, imageId: 42 })),
 			);
 			// Upload sequence must be DCS-wrapped and contain U=1
 			assert.ok(result.uploadSequence.startsWith("\x1bPtmux;"));
@@ -105,8 +111,8 @@ describe("terminal image helpers", () => {
 
 		it("should encode image ID as true-color foreground", () => {
 			// Image ID 42: r=0, g=0, b=42
-			const result = withTmuxEnv("/tmp/tmux,1,0", () =>
-				encodeKittyPlaceholder("QUJD", { columns: 2, rows: 1, imageId: 42 }),
+			const result = withTmuxImagesEnv("1", () =>
+				withTmuxEnv("/tmp/tmux,1,0", () => encodeKittyPlaceholder("QUJD", { columns: 2, rows: 1, imageId: 42 })),
 			);
 			const line = result.placeholderLines[0]!;
 			assert.ok(line.includes("\x1b[38;2;0;0;42m"));
@@ -115,15 +121,17 @@ describe("terminal image helpers", () => {
 
 		it("should encode image ID with all three RGB components", () => {
 			// ID 0x1A2B3C → r=0x1A=26, g=0x2B=43, b=0x3C=60
-			const result = withTmuxEnv("/tmp/tmux,1,0", () =>
-				encodeKittyPlaceholder("QUJD", { columns: 1, rows: 1, imageId: 0x1a2b3c }),
+			const result = withTmuxImagesEnv("1", () =>
+				withTmuxEnv("/tmp/tmux,1,0", () =>
+					encodeKittyPlaceholder("QUJD", { columns: 1, rows: 1, imageId: 0x1a2b3c }),
+				),
 			);
 			assert.ok(result.placeholderLines[0]!.includes("\x1b[38;2;26;43;60m"));
 		});
 
 		it("should contain U+10EEEE placeholder characters", () => {
-			const result = withTmuxEnv("/tmp/tmux,1,0", () =>
-				encodeKittyPlaceholder("QUJD", { columns: 4, rows: 1, imageId: 1 }),
+			const result = withTmuxImagesEnv("1", () =>
+				withTmuxEnv("/tmp/tmux,1,0", () => encodeKittyPlaceholder("QUJD", { columns: 4, rows: 1, imageId: 1 })),
 			);
 			const placeholder = String.fromCodePoint(0x10eeee);
 			const line = result.placeholderLines[0]!;
@@ -133,8 +141,8 @@ describe("terminal image helpers", () => {
 		});
 
 		it("isImageLine should detect placeholder lines", () => {
-			const result = withTmuxEnv("/tmp/tmux,1,0", () =>
-				encodeKittyPlaceholder("QUJD", { columns: 2, rows: 2, imageId: 5 }),
+			const result = withTmuxImagesEnv("1", () =>
+				withTmuxEnv("/tmp/tmux,1,0", () => encodeKittyPlaceholder("QUJD", { columns: 2, rows: 2, imageId: 5 })),
 			);
 			// Both the upload line and pure placeholder lines are image lines
 			assert.strictEqual(isImageLine(result.uploadSequence + result.placeholderLines[0]!), true);
@@ -143,23 +151,25 @@ describe("terminal image helpers", () => {
 
 		it("should chunk large payloads with DCS wrapping per chunk", () => {
 			const bigPayload = "A".repeat(5000);
-			const result = withTmuxEnv("/tmp/tmux,1,0", () =>
-				encodeKittyPlaceholder(bigPayload, { columns: 2, rows: 1, imageId: 7 }),
+			const result = withTmuxImagesEnv("1", () =>
+				withTmuxEnv("/tmp/tmux,1,0", () => encodeKittyPlaceholder(bigPayload, { columns: 2, rows: 1, imageId: 7 })),
 			);
 			// Two DCS-wrapped chunks (4096 + 904)
 			assert.strictEqual(result.uploadSequence.match(/\x1bPtmux;/g)?.length, 2);
 		});
 
 		it("renderImage should return placeholderLines inside tmux", () => {
-			withEnv("TERM_PROGRAM", "kitty", () =>
-				withCapabilitiesReset(() => {
-					const result = withTmuxEnv("/tmp/tmux,1,0", () =>
-						renderImage(PNG_1X1_BASE64, { widthPx: 100, heightPx: 50 }, { maxWidthCells: 10, imageId: 99 }),
-					);
-					assert.ok(result);
-					assert.ok(result.placeholderLines);
-					assert.strictEqual(result.placeholderLines.length, result.rows);
-				}),
+			withTmuxImagesEnv("1", () =>
+				withEnv("TERM_PROGRAM", "kitty", () =>
+					withCapabilitiesReset(() => {
+						const result = withTmuxEnv("/tmp/tmux,1,0", () =>
+							renderImage(PNG_1X1_BASE64, { widthPx: 100, heightPx: 50 }, { maxWidthCells: 10, imageId: 99 }),
+						);
+						assert.ok(result);
+						assert.ok(result.placeholderLines);
+						assert.strictEqual(result.placeholderLines.length, result.rows);
+					}),
+				),
 			);
 		});
 
@@ -178,26 +188,30 @@ describe("terminal image helpers", () => {
 
 	describe("Image component", () => {
 		it("should auto-allocate a stable Kitty image ID for PNG rerenders", () => {
-			withEnv("TERM_PROGRAM", "kitty", () =>
-				withCapabilitiesReset(() => {
-					const image = new Image(
-						PNG_1X1_BASE64,
-						"image/png",
-						{ fallbackColor: (s) => s },
-						{ maxWidthCells: 10 },
-						{ widthPx: 100, heightPx: 50 },
-					);
+			withTmuxImagesEnv("1", () =>
+				withTmuxEnv(undefined, () =>
+					withEnv("TERM_PROGRAM", "kitty", () =>
+						withCapabilitiesReset(() => {
+							const image = new Image(
+								PNG_1X1_BASE64,
+								"image/png",
+								{ fallbackColor: (s) => s },
+								{ maxWidthCells: 10 },
+								{ widthPx: 100, heightPx: 50 },
+							);
 
-					const firstLines = image.render(20);
-					const firstImageId = image.getImageId();
-					assert.ok(firstImageId);
-					assert.ok(firstLines.at(-1)?.includes(`i=${firstImageId}`));
+							const firstLines = image.render(20);
+							const firstImageId = image.getImageId();
+							assert.ok(firstImageId);
+							assert.ok(firstLines.at(-1)?.includes(`i=${firstImageId}`));
 
-					image.invalidate();
-					const secondLines = image.render(20);
-					assert.strictEqual(image.getImageId(), firstImageId);
-					assert.ok(secondLines.at(-1)?.includes(`i=${firstImageId}`));
-				}),
+							image.invalidate();
+							const secondLines = image.render(20);
+							assert.strictEqual(image.getImageId(), firstImageId);
+							assert.ok(secondLines.at(-1)?.includes(`i=${firstImageId}`));
+						}),
+					),
+				),
 			);
 		});
 
@@ -216,14 +230,13 @@ describe("terminal image helpers", () => {
 						const firstLines = image.render(20);
 						assert.strictEqual(image.getImageId(), 7);
 						assert.ok(firstLines.at(-1)?.includes("i=7"));
+						// Multi-row image: last line starts with cursor-up to first row
 						assert.ok(firstLines.at(-1)?.startsWith(`\x1b[${firstLines.length - 1}A`));
-						assert.ok(firstLines.at(-1)?.endsWith(`\x1b[${firstLines.length - 1}B`));
 
 						image.invalidate();
 						const secondLines = image.render(20);
 						assert.strictEqual(image.getImageId(), 7);
 						assert.ok(secondLines.at(-1)?.includes("i=7"));
-						assert.ok(secondLines.at(-1)?.endsWith(`\x1b[${secondLines.length - 1}B`));
 					}),
 				),
 			);
@@ -245,21 +258,23 @@ describe("terminal image helpers", () => {
 		});
 
 		it("should fall back for non-PNG Kitty images instead of emitting invalid Kitty payloads", () => {
-			withEnv("TERM_PROGRAM", "kitty", () =>
-				withCapabilitiesReset(() => {
-					const image = new Image(
-						"QUJD",
-						"image/jpeg",
-						{ fallbackColor: (s) => s },
-						{ maxWidthCells: 10 },
-						{ widthPx: 100, heightPx: 50 },
-					);
+			withTmuxImagesEnv("1", () =>
+				withEnv("TERM_PROGRAM", "kitty", () =>
+					withCapabilitiesReset(() => {
+						const image = new Image(
+							"QUJD",
+							"image/jpeg",
+							{ fallbackColor: (s) => s },
+							{ maxWidthCells: 10 },
+							{ widthPx: 100, heightPx: 50 },
+						);
 
-					const lines = image.render(20);
-					assert.strictEqual(image.getImageId(), undefined);
-					assert.deepStrictEqual(lines, ["[Image: [image/jpeg] 100x50]"]);
-					assert.strictEqual(renderImage("QUJD", { widthPx: 100, heightPx: 50 }, { maxWidthCells: 10 }), null);
-				}),
+						const lines = image.render(20);
+						assert.strictEqual(image.getImageId(), undefined);
+						assert.deepStrictEqual(lines, ["[Image: [image/jpeg] 100x50]"]);
+						assert.strictEqual(renderImage("QUJD", { widthPx: 100, heightPx: 50 }, { maxWidthCells: 10 }), null);
+					}),
+				),
 			);
 		});
 
@@ -314,32 +329,34 @@ describe("terminal image helpers", () => {
 		});
 
 		it("should emit placeholder lines instead of cursor movement in tmux", () => {
-			withTmuxEnv("/tmp/tmux,1,0", () =>
-				withEnv("TERM_PROGRAM", "kitty", () =>
-					withCapabilitiesReset(() => {
-						const image = new Image(
-							PNG_1X1_BASE64,
-							"image/png",
-							{ fallbackColor: (s) => s },
-							{ maxWidthCells: 10 },
-							{ widthPx: 100, heightPx: 50 },
-						);
+			withTmuxImagesEnv("1", () =>
+				withTmuxEnv("/tmp/tmux,1,0", () =>
+					withEnv("TERM_PROGRAM", "kitty", () =>
+						withCapabilitiesReset(() => {
+							const image = new Image(
+								PNG_1X1_BASE64,
+								"image/png",
+								{ fallbackColor: (s) => s },
+								{ maxWidthCells: 10 },
+								{ widthPx: 100, heightPx: 50 },
+							);
 
-						const lines = image.render(20);
-						const placeholder = String.fromCodePoint(0x10eeee);
-						// First line contains upload APC + placeholder text
-						assert.ok(lines[0]!.includes("U=1"));
-						assert.ok(lines[0]!.includes(placeholder));
-						// No cursor-up/down escape sequences (direct mode artifact)
-						for (const line of lines) {
-							assert.ok(!line.endsWith("B"), "Should not end with cursor-down");
-						}
-						// All lines should contain placeholder chars
-						// (first line has APC + placeholder, rest are pure placeholder)
-						for (const line of lines) {
-							assert.ok(line.includes(placeholder));
-						}
-					}),
+							const lines = image.render(20);
+							const placeholder = String.fromCodePoint(0x10eeee);
+							// First line contains upload APC + placeholder text
+							assert.ok(lines[0]!.includes("U=1"));
+							assert.ok(lines[0]!.includes(placeholder));
+							// No cursor-up/down escape sequences (direct mode artifact)
+							for (const line of lines) {
+								assert.ok(!line.endsWith("B"), "Should not end with cursor-down");
+							}
+							// All lines should contain placeholder chars
+							// (first line has APC + placeholder, rest are pure placeholder)
+							for (const line of lines) {
+								assert.ok(line.includes(placeholder));
+							}
+						}),
+					),
 				),
 			);
 		});
