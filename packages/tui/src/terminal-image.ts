@@ -519,10 +519,9 @@ export function renderImage(
 	const rows = calculateImageRows(imageDimensions, maxWidth, getCellDimensions());
 
 	if (caps.images === "kitty") {
-		// In placeholder mode (PI_TMUX_IMAGES), Kitty `f=100` requires
-		// valid PNG data.  Without the flag, direct placement handles
-		// whatever the terminal accepts, so skip the check.
-		if (process.env.PI_TMUX_IMAGES && !getPngDimensions(base64Data)) {
+		// Kitty f=100 expects PNG data. Return null for non-PNG so
+		// callers can show a fallback.
+		if (!getPngDimensions(base64Data)) {
 			return null;
 		}
 
