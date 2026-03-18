@@ -84,7 +84,7 @@ const KITTY_PREFIX = "\x1b_G";
 const ITERM2_PREFIX = "\x1b]1337;File=";
 
 function maybeWrapTmuxPassthrough(sequence: string): string {
-	if (!process.env.TMUX) {
+	if (!process.env.TMUX || !process.env.PI_TMUX_IMAGES) {
 		return sequence;
 	}
 
@@ -519,14 +519,16 @@ export function renderImage(
 	const rows = calculateImageRows(imageDimensions, maxWidth, getCellDimensions());
 
 	if (caps.images === "kitty") {
-		// Kitty `f=100` expects PNG data. Fall back if callers pass another format.
-		if (!getPngDimensions(base64Data)) {
+		// In placeholder mode (PI_TMUX_IMAGES), Kitty `f=100` requires
+		// valid PNG data.  Without the flag, direct placement handles
+		// whatever the terminal accepts, so skip the check.
+		if (process.env.PI_TMUX_IMAGES && !getPngDimensions(base64Data)) {
 			return null;
 		}
 
 		// Inside tmux: use Unicode placeholders so images stay in their
 		// pane on splits/resizes instead of leaking to adjacent panes.
-		if (process.env.TMUX && options.imageId) {
+		if (process.env.TMUX && process.env.PI_TMUX_IMAGES && options.imageId) {
 			const { uploadSequence, placeholderLines } = encodeKittyPlaceholder(base64Data, {
 				columns: maxWidth,
 				rows,
