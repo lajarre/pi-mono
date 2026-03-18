@@ -85,7 +85,7 @@ const KITTY_PREFIX = "\x1b_G";
 const ITERM2_PREFIX = "\x1b]1337;File=";
 
 function maybeWrapTmuxPassthrough(sequence: string): string {
-	if (!process.env.TMUX) {
+	if (!process.env.TMUX || !process.env.PI_TMUX_IMAGES) {
 		return sequence;
 	}
 
@@ -544,7 +544,7 @@ export function renderImage(
 
 		// Inside tmux: use Unicode placeholders so images stay in their
 		// pane on splits/resizes instead of leaking to adjacent panes.
-		if (process.env.TMUX && options.imageId) {
+		if (process.env.TMUX && process.env.PI_TMUX_IMAGES && options.imageId) {
 			const { uploadSequence, placeholderLines } = encodeKittyPlaceholder(base64Data, {
 				columns,
 				rows,
