@@ -28,7 +28,7 @@ console.log("");
 
 const terminal = new ProcessTerminal();
 const tui = new TUI(terminal);
-const imageId = getCapabilities().images === "kitty" ? allocateImageId() : undefined;
+const imageId = getCapabilities().images === "kitty" && process.env.PI_TMUX_IMAGES ? allocateImageId() : undefined;
 
 tui.addChild(new Text("Image Rendering Test", 1, 1));
 tui.addChild(new Spacer(1));
