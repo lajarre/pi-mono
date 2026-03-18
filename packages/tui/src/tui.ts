@@ -233,6 +233,7 @@ export class TUI extends Container {
 	private hardwareCursorRow = 0; // Actual terminal cursor row (may differ due to IME positioning)
 	private inputBuffer = ""; // Buffer for parsing terminal responses
 	private cellSizeQueryPending = false;
+	private cellSizeQueryTimeout: ReturnType<typeof setTimeout> | null = null;
 	private showHardwareCursor = process.env.PI_HARDWARE_CURSOR === "1";
 	private clearOnShrink = process.env.PI_CLEAR_ON_SHRINK === "1"; // Clear empty rows when content shrinks (default: off)
 	private maxLinesRendered = 0; // Track terminal's working area (max lines ever rendered)
@@ -451,10 +452,24 @@ export class TUI extends Container {
 		// Response format: CSI 6 ; height ; width t
 		this.cellSizeQueryPending = true;
 		this.terminal.write("\x1b[16t");
+		this.cellSizeQueryTimeout = setTimeout(() => {
+			this.cellSizeQueryTimeout = null;
+			if (!this.cellSizeQueryPending) return;
+			this.cellSizeQueryPending = false;
+			const buffered = this.inputBuffer;
+			this.inputBuffer = "";
+			if (buffered.length > 0) {
+				this.handleInput(buffered);
+			}
+		}, 50);
 	}
 
 	stop(options?: { clear?: boolean }): void {
 		this.stopped = true;
+		if (this.cellSizeQueryTimeout) {
+			clearTimeout(this.cellSizeQueryTimeout);
+			this.cellSizeQueryTimeout = null;
+		}
 
 		if (options?.clear) {
 			let buffer = "\x1b[?2026h\x1b[2J\x1b[H";
@@ -466,6 +481,15 @@ export class TUI extends Container {
 			buffer += "\x1b[?2026l";
 			this.terminal.write(buffer);
 		} else {
+			if (getCapabilities().images === "kitty") {
+				let deleteBuffer = "";
+				for (const imageId of this.collectKittyImageIds(this.previousLines)) {
+					deleteBuffer += deleteKittyImage(imageId);
+				}
+				if (deleteBuffer) {
+					this.terminal.write(deleteBuffer);
+				}
+			}
 			// Move cursor to the end of the content to prevent overwriting/artifacts on exit
 			if (this.previousLines.length > 0) {
 				const targetRow = this.previousLines.length; // Line after the last content
@@ -519,6 +543,12 @@ export class TUI extends Container {
 			data = current;
 		}
 
+		// Strip late cell size responses that arrive after the query period
+		if (!this.cellSizeQueryPending) {
+			data = this.consumeCellSizeResponses(data);
+			if (data.length === 0) return;
+		}
+
 		// If we're waiting for cell size response, buffer input and parse
 		if (this.cellSizeQueryPending) {
 			this.inputBuffer += data;
@@ -559,6 +589,11 @@ export class TUI extends Container {
 		}
 	}
 
+	private consumeCellSizeResponses(data: string): string {
+		// Strip any CSI 6;h;w t responses from input
+		return data.replace(/\x1b\[6;\d+;\d+t/g, "");
+	}
+
 	private parseCellSizeResponse(): string {
 		// Response format: ESC [ 6 ; height ; width t
 		// Match the response pattern
@@ -579,6 +614,10 @@ export class TUI extends Container {
 			// Remove the response from buffer
 			this.inputBuffer = this.inputBuffer.replace(responsePattern, "");
 			this.cellSizeQueryPending = false;
+			if (this.cellSizeQueryTimeout) {
+				clearTimeout(this.cellSizeQueryTimeout);
+				this.cellSizeQueryTimeout = null;
+			}
 		}
 
 		// Check if we have a partial cell size response starting (wait for more data)
@@ -932,6 +971,20 @@ export class TUI extends Container {
 
 		newLines = this.applyLineResets(newLines);
 
+		// Compute Kitty image deletions: IDs present in previous frame but absent in new frame
+		let kittyDeleteBuffer = "";
+		if (getCapabilities().images === "kitty" && this.previousLines.length > 0) {
+			const oldIds = this.collectKittyImageIds(this.previousLines);
+			if (oldIds.size > 0) {
+				const newIds = this.collectKittyImageIds(newLines);
+				for (const id of oldIds) {
+					if (!newIds.has(id)) {
+						kittyDeleteBuffer += deleteKittyImage(id);
+					}
+				}
+			}
+		}
+
 		// Width or height changed - need full re-render
 		const widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;
 		const heightChanged = this.previousHeight !== 0 && this.previousHeight !== height;
@@ -940,6 +993,7 @@ export class TUI extends Container {
 		const fullRender = (clear: boolean): void => {
 			this.fullRedrawCount += 1;
 			let buffer = "\x1b[?2026h"; // Begin synchronized output
+			buffer += kittyDeleteBuffer;
 			if (clear) buffer += "\x1b[2J\x1b[H\x1b[3J"; // Clear screen, home, then clear scrollback
 			for (let i = 0; i < newLines.length; i++) {
 				if (i > 0) buffer += "\r\n";
@@ -1078,6 +1132,7 @@ export class TUI extends Container {
 		// Render from first changed line to end
 		// Build buffer with all updates wrapped in synchronized output
 		let buffer = "\x1b[?2026h"; // Begin synchronized output
+		buffer += kittyDeleteBuffer;
 		const prevViewportBottom = prevViewportTop + height - 1;
 		const moveTargetRow = appendStart ? firstChanged - 1 : firstChanged;
 		if (moveTargetRow > prevViewportBottom) {

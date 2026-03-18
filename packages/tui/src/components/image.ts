@@ -14,6 +14,7 @@ export interface ImageTheme {
 
 export interface ImageOptions {
 	maxWidthCells?: number;
+	maxHeightCells?: number;
 	filename?: string;
 	/** Kitty image ID. If provided, reuses this ID (for animations/updates). */
 	imageId?: number;
@@ -77,6 +78,7 @@ export class Image implements Component {
 
 			const result = renderImage(this.base64Data, this.dimensions, {
 				maxWidthCells: maxWidth,
+				maxHeightCells: this.options.maxHeightCells,
 				imageId: this.imageId,
 			});
 
@@ -100,7 +102,8 @@ export class Image implements Component {
 						lines.push("");
 					}
 					const moveUp = result.rows > 1 ? `\x1b[${result.rows - 1}A` : "";
-					lines.push(moveUp + result.sequence);
+					const moveDown = result.rows > 1 ? `\x1b[${result.rows - 1}B` : "";
+					lines.push(moveUp + result.sequence + moveDown);
 				}
 			} else {
 				const fallback = imageFallback(this.mimeType, this.dimensions, this.options.filename);
