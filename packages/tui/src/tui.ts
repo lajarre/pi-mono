@@ -233,6 +233,7 @@ export class TUI extends Container {
 	private hardwareCursorRow = 0; // Actual terminal cursor row (may differ due to IME positioning)
 	private inputBuffer = ""; // Buffer for parsing terminal responses
 	private cellSizeQueryPending = false;
+	private cellSizeQueryTimeout: ReturnType<typeof setTimeout> | null = null;
 	private showHardwareCursor = process.env.PI_HARDWARE_CURSOR === "1";
 	private clearOnShrink = process.env.PI_CLEAR_ON_SHRINK === "1"; // Clear empty rows when content shrinks (default: off)
 	private maxLinesRendered = 0; // Track terminal's working area (max lines ever rendered)
@@ -451,10 +452,24 @@ export class TUI extends Container {
 		// Response format: CSI 6 ; height ; width t
 		this.cellSizeQueryPending = true;
 		this.terminal.write("\x1b[16t");
+		this.cellSizeQueryTimeout = setTimeout(() => {
+			this.cellSizeQueryTimeout = null;
+			if (!this.cellSizeQueryPending) return;
+			this.cellSizeQueryPending = false;
+			const buffered = this.inputBuffer;
+			this.inputBuffer = "";
+			if (buffered.length > 0) {
+				this.handleInput(buffered);
+			}
+		}, 50);
 	}
 
 	stop(options?: { clear?: boolean }): void {
 		this.stopped = true;
+		if (this.cellSizeQueryTimeout) {
+			clearTimeout(this.cellSizeQueryTimeout);
+			this.cellSizeQueryTimeout = null;
+		}
 
 		if (options?.clear) {
 			let buffer = "\x1b[?2026h\x1b[2J\x1b[H";
@@ -528,6 +543,12 @@ export class TUI extends Container {
 			data = current;
 		}
 
+		// Strip late cell size responses that arrive after the query period
+		if (!this.cellSizeQueryPending) {
+			data = this.consumeCellSizeResponses(data);
+			if (data.length === 0) return;
+		}
+
 		// If we're waiting for cell size response, buffer input and parse
 		if (this.cellSizeQueryPending) {
 			this.inputBuffer += data;
@@ -568,6 +589,11 @@ export class TUI extends Container {
 		}
 	}
 
+	private consumeCellSizeResponses(data: string): string {
+		// Strip any CSI 6;h;w t responses from input
+		return data.replace(/\x1b\[6;\d+;\d+t/g, "");
+	}
+
 	private parseCellSizeResponse(): string {
 		// Response format: ESC [ 6 ; height ; width t
 		// Match the response pattern
@@ -588,6 +614,10 @@ export class TUI extends Container {
 			// Remove the response from buffer
 			this.inputBuffer = this.inputBuffer.replace(responsePattern, "");
 			this.cellSizeQueryPending = false;
+			if (this.cellSizeQueryTimeout) {
+				clearTimeout(this.cellSizeQueryTimeout);
+				this.cellSizeQueryTimeout = null;
+			}
 		}
 
 		// Check if we have a partial cell size response starting (wait for more data)
