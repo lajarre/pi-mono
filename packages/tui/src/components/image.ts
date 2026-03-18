@@ -100,7 +100,8 @@ export class Image implements Component {
 						lines.push("");
 					}
 					const moveUp = result.rows > 1 ? `\x1b[${result.rows - 1}A` : "";
-					lines.push(moveUp + result.sequence);
+					const moveDown = result.rows > 1 ? `\x1b[${result.rows - 1}B` : "";
+					lines.push(moveUp + result.sequence + moveDown);
 				}
 			} else {
 				const fallback = imageFallback(this.mimeType, this.dimensions, this.options.filename);
