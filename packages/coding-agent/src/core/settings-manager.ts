@@ -24,6 +24,7 @@ export interface RetrySettings {
 
 export interface TerminalSettings {
 	showImages?: boolean; // default: true (only relevant if terminal supports images)
+	showMessageTimestamps?: boolean; // default: false (show message timestamps in the interactive feed)
 	clearOnShrink?: boolean; // default: false (clear empty rows when content shrinks)
 }
 
@@ -839,6 +840,19 @@ export class SettingsManager {
 		}
 		this.globalSettings.terminal.showImages = show;
 		this.markModified("terminal", "showImages");
+		this.save();
+	}
+
+	getShowMessageTimestamps(): boolean {
+		return this.settings.terminal?.showMessageTimestamps ?? false;
+	}
+
+	setShowMessageTimestamps(show: boolean): void {
+		if (!this.globalSettings.terminal) {
+			this.globalSettings.terminal = {};
+		}
+		this.globalSettings.terminal.showMessageTimestamps = show;
+		this.markModified("terminal", "showMessageTimestamps");
 		this.save();
 	}
 

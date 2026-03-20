@@ -1,6 +1,31 @@
 import type { AssistantMessage } from "@mariozechner/pi-ai";
-import { Container, Markdown, type MarkdownTheme, Spacer, Text } from "@mariozechner/pi-tui";
+import {
+	Container,
+	Markdown,
+	type MarkdownTheme,
+	Spacer,
+	Text,
+	truncateToWidth,
+	visibleWidth,
+} from "@mariozechner/pi-tui";
 import { getMarkdownTheme, theme } from "../theme/theme.js";
+
+function formatTimestamp(timestamp?: number): string | null {
+	if (!timestamp) {
+		return null;
+	}
+	return new Date(timestamp).toLocaleTimeString(undefined, {
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+	});
+}
+
+function renderRightAlignedTimestamp(width: number, timestamp: string): string {
+	const rightText = truncateToWidth(theme.fg("dim", timestamp), width, "");
+	const spacing = Math.max(0, width - visibleWidth(rightText));
+	return " ".repeat(spacing) + rightText;
+}
 
 /**
  * Component that renders a complete assistant message
@@ -9,17 +34,20 @@ export class AssistantMessageComponent extends Container {
 	private contentContainer: Container;
 	private hideThinkingBlock: boolean;
 	private markdownTheme: MarkdownTheme;
+	private showTimestamp: boolean;
 	private lastMessage?: AssistantMessage;
 
 	constructor(
 		message?: AssistantMessage,
 		hideThinkingBlock = false,
 		markdownTheme: MarkdownTheme = getMarkdownTheme(),
+		showTimestamp = false,
 	) {
 		super();
 
 		this.hideThinkingBlock = hideThinkingBlock;
 		this.markdownTheme = markdownTheme;
+		this.showTimestamp = showTimestamp;
 
 		// Container for text/thinking content
 		this.contentContainer = new Container();
@@ -47,11 +75,12 @@ export class AssistantMessageComponent extends Container {
 		// Clear content container
 		this.contentContainer.clear();
 
+		const timestamp = this.showTimestamp ? formatTimestamp(message.timestamp) : null;
 		const hasVisibleContent = message.content.some(
 			(c) => (c.type === "text" && c.text.trim()) || (c.type === "thinking" && c.thinking.trim()),
 		);
 
-		if (hasVisibleContent) {
+		if (timestamp || hasVisibleContent) {
 			this.contentContainer.addChild(new Spacer(1));
 		}
 
@@ -99,11 +128,7 @@ export class AssistantMessageComponent extends Container {
 					message.errorMessage && message.errorMessage !== "Request was aborted"
 						? message.errorMessage
 						: "Operation aborted";
-				if (hasVisibleContent) {
-					this.contentContainer.addChild(new Spacer(1));
-				} else {
-					this.contentContainer.addChild(new Spacer(1));
-				}
+				this.contentContainer.addChild(new Spacer(1));
 				this.contentContainer.addChild(new Text(theme.fg("error", abortMessage), 1, 0));
 			} else if (message.stopReason === "error") {
 				const errorMsg = message.errorMessage || "Unknown error";
@@ -111,5 +136,18 @@ export class AssistantMessageComponent extends Container {
 				this.contentContainer.addChild(new Text(theme.fg("error", `Error: ${errorMsg}`), 1, 0));
 			}
 		}
+	}
+
+	override render(width: number): string[] {
+		const lines = super.render(width);
+		if (lines.length === 0 || !this.showTimestamp || !this.lastMessage?.timestamp) {
+			return lines;
+		}
+
+		const timestamp = formatTimestamp(this.lastMessage.timestamp);
+		if (timestamp) {
+			lines[0] = renderRightAlignedTimestamp(width, timestamp);
+		}
+		return lines;
 	}
 }

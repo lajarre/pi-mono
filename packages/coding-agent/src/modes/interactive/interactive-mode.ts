@@ -2180,6 +2180,7 @@ export class InteractiveMode {
 						undefined,
 						this.hideThinkingBlock,
 						this.getMarkdownThemeWithSettings(),
+						this.settingsManager.getShowMessageTimestamps(),
 					);
 					this.streamingMessage = event.message;
 					this.chatContainer.addChild(this.streamingComponent);
@@ -2510,11 +2511,18 @@ export class InteractiveMode {
 							const userComponent = new UserMessageComponent(
 								skillBlock.userMessage,
 								this.getMarkdownThemeWithSettings(),
+								{
+									timestamp: message.timestamp,
+									showTimestamp: this.settingsManager.getShowMessageTimestamps(),
+								},
 							);
 							this.chatContainer.addChild(userComponent);
 						}
 					} else {
-						const userComponent = new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings());
+						const userComponent = new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings(), {
+							timestamp: message.timestamp,
+							showTimestamp: this.settingsManager.getShowMessageTimestamps(),
+						});
 						this.chatContainer.addChild(userComponent);
 					}
 					if (options?.populateHistory) {
@@ -2528,6 +2536,7 @@ export class InteractiveMode {
 					message,
 					this.hideThinkingBlock,
 					this.getMarkdownThemeWithSettings(),
+					this.settingsManager.getShowMessageTimestamps(),
 				);
 				this.chatContainer.addChild(assistantComponent);
 				break;
@@ -3159,6 +3168,7 @@ export class InteractiveMode {
 				{
 					autoCompact: this.session.autoCompactionEnabled,
 					showImages: this.settingsManager.getShowImages(),
+					showMessageTimestamps: this.settingsManager.getShowMessageTimestamps(),
 					autoResizeImages: this.settingsManager.getImageAutoResize(),
 					blockImages: this.settingsManager.getBlockImages(),
 					enableSkillCommands: this.settingsManager.getEnableSkillCommands(),
@@ -3191,6 +3201,11 @@ export class InteractiveMode {
 								child.setShowImages(enabled);
 							}
 						}
+					},
+					onShowMessageTimestampsChange: (enabled) => {
+						this.settingsManager.setShowMessageTimestamps(enabled);
+						this.chatContainer.clear();
+						this.rebuildChatFromMessages();
 					},
 					onAutoResizeImagesChange: (enabled) => {
 						this.settingsManager.setImageAutoResize(enabled);

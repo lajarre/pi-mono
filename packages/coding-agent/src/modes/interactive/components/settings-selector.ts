@@ -31,6 +31,7 @@ const THINKING_DESCRIPTIONS: Record<ThinkingLevel, string> = {
 export interface SettingsConfig {
 	autoCompact: boolean;
 	showImages: boolean;
+	showMessageTimestamps: boolean;
 	autoResizeImages: boolean;
 	blockImages: boolean;
 	enableSkillCommands: boolean;
@@ -55,6 +56,7 @@ export interface SettingsConfig {
 export interface SettingsCallbacks {
 	onAutoCompactChange: (enabled: boolean) => void;
 	onShowImagesChange: (enabled: boolean) => void;
+	onShowMessageTimestampsChange: (enabled: boolean) => void;
 	onAutoResizeImagesChange: (enabled: boolean) => void;
 	onBlockImagesChange: (blocked: boolean) => void;
 	onEnableSkillCommandsChange: (enabled: boolean) => void;
@@ -190,6 +192,13 @@ export class SettingsSelectorComponent extends Container {
 				label: "Hide thinking",
 				description: "Hide thinking blocks in assistant responses",
 				currentValue: config.hideThinkingBlock ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
+				id: "show-message-timestamps",
+				label: "Show message timestamps",
+				description: "Show HH:MM:SS timestamps above user and assistant messages",
+				currentValue: config.showMessageTimestamps ? "true" : "false",
 				values: ["true", "false"],
 			},
 			{
@@ -368,6 +377,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "show-images":
 						callbacks.onShowImagesChange(newValue === "true");
+						break;
+					case "show-message-timestamps":
+						callbacks.onShowMessageTimestampsChange(newValue === "true");
 						break;
 					case "auto-resize-images":
 						callbacks.onAutoResizeImagesChange(newValue === "true");
