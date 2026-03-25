@@ -10,6 +10,12 @@ OSS weekend runs Thursday, April 2, 2026 through Monday, April 13, 2026. New iss
 
 ---
 
+> **Fork note:** This fork ([lajarre/pi-mono](https://github.com/lajarre/pi-mono))
+> adds Kitty inline image support inside tmux, gated behind `PI_TMUX_IMAGES`.
+> Upstream ([badlogic/pi-mono](https://github.com/badlogic/pi-mono)) does not
+> carry this feature. The `mainjarre` branch tracks `origin/main` and stays
+> rebased on `upstream/main` with the local image patches replayed on top.
+
 <p align="center">
   <a href="https://shittycodingagent.ai">
     <img src="https://shittycodingagent.ai/logo.svg" alt="pi logo" width="128">
