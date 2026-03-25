@@ -1,5 +1,33 @@
 # Development Rules
 
+## Fork Workflow
+
+This is a fork of [badlogic/pi-mono](https://github.com/badlogic/pi-mono).
+
+- local `main` stays aligned with `origin/main`
+- `origin/main` is the fork sync branch
+- local-only working commits live on `mainjarre`
+- `mainjarre` tracks `origin/main`
+
+### The rebase job
+
+Recurring task to sync with upstream:
+
+1. **audit**: `git cherry -v upstream/main mainjarre` — list
+   local-only commits, decide keep/drop
+2. **sync main** (nice-to-have): pull local `main` from
+   `upstream/main`
+3. **reset mainjarre**: move `mainjarre` onto `upstream/main`
+4. **replay**: cherry-pick keeper commits onto `mainjarre`,
+   resolve conflicts manually
+5. **push**: force-push `mainjarre` to `origin/main`
+
+After the rebase, `mainjarre` should be ahead of
+`upstream/main` by N local commits, behind 0.
+
+See `doc/ref/rebase-forked-main.md` and
+`doc/faq/fork-maintenance.md` for full procedure.
+
 ## First Message
 If the user did not give you a concrete task in their first message,
 read README.md, then ask which module(s) to work on. Based on the answer, read the relevant README.md files in parallel.
