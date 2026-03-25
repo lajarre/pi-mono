@@ -1,38 +1,23 @@
-import * as os from "node:os";
 import {
 	allocateImageId,
 	Box,
 	type Component,
 	Container,
 	getCapabilities,
-	getImageDimensions,
 	Image,
-	imageFallback,
 	Spacer,
 	Text,
 	type TUI,
-	truncateToWidth,
 } from "@mariozechner/pi-tui";
-import stripAnsi from "strip-ansi";
 import type { ToolDefinition, ToolRenderContext } from "../../../core/extensions/types.js";
-import { computeEditDiff, type EditDiffError, type EditDiffResult } from "../../../core/tools/edit-diff.js";
-import { allToolDefinitions, allTools } from "../../../core/tools/index.js";
+import { allToolDefinitions } from "../../../core/tools/index.js";
 import { getTextOutput as getRenderedTextOutput } from "../../../core/tools/render-utils.js";
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from "../../../core/tools/truncate.js";
 import { convertToPng } from "../../../utils/image-convert.js";
 import { theme } from "../theme/theme.js";
 
 export interface ToolExecutionOptions {
 	showImages?: boolean;
 }
-
-type WriteHighlightCache = {
-	rawPath: string | null;
-	lang: string;
-	rawContent: string;
-	normalizedLines: string[];
-	highlightedLines: string[];
-};
 
 type ConvertedImage = {
 	sourceData: string;
@@ -69,16 +54,11 @@ export class ToolExecutionComponent extends Container {
 		isError: boolean;
 		details?: any;
 	};
-	// Cached edit diff preview (computed when args arrive, before tool executes)
-	private editDiffPreview?: EditDiffResult | EditDiffError;
-	private editDiffArgsKey?: string; // Track which args the preview is for
 	// Cached converted images for Kitty protocol (which requires PNG), keyed by image index and source payload.
 	private convertedImages: Map<number, ConvertedImage> = new Map();
 	// Stable Kitty image IDs keyed by result image index so rebuilds replace
 	// the same image instead of stacking duplicate placements.
 	private kittyImageIds: Map<number, number> = new Map();
-	// Incremental syntax highlighting cache for write tool call args
-	private writeHighlightCache?: WriteHighlightCache;
 	// When true, this component intentionally renders no lines
 	private hideComponent = false;
 
