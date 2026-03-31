@@ -78,4 +78,25 @@ describe("TUI cell size responses", () => {
 			tui.stop();
 		});
 	});
+
+	it("consumes split cell size responses once the query prefix is identified", () => {
+		withImageTerminal(() => {
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+
+			const terminal = new VirtualTerminal(80, 24);
+			const tui = new TUI(terminal);
+			const recorder = new InputRecorder();
+
+			tui.setFocus(recorder);
+			tui.start();
+
+			terminal.sendInput("\x1b[6");
+			assert.deepStrictEqual(recorder.inputs, []);
+
+			terminal.sendInput(";20;10t");
+			assert.deepStrictEqual(recorder.inputs, []);
+			assert.deepStrictEqual(getCellDimensions(), { widthPx: 10, heightPx: 20 });
+			tui.stop();
+		});
+	});
 });
