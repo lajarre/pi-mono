@@ -31,7 +31,12 @@ describe("AgentSessionRuntimeHost characterization", () => {
 
 	async function createRuntimeHost(
 		extensionFactory: ExtensionFactory,
-		options?: { cwd?: string; bootstrapModel?: boolean; bootstrapThinkingLevel?: boolean },
+		options?: {
+			cwd?: string;
+			bootstrapModel?: boolean;
+			bootstrapThinkingLevel?: boolean;
+			flagValues?: Map<string, boolean | string>;
+		},
 	) {
 		const tempDir =
 			options?.cwd ?? join(tmpdir(), `pi-runtime-suite-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -53,6 +58,7 @@ describe("AgentSessionRuntimeHost characterization", () => {
 			authStorage,
 			model: options?.bootstrapModel === false ? undefined : faux.getModel(),
 			thinkingLevel: options?.bootstrapThinkingLevel === false ? undefined : undefined,
+			flagValues: options?.flagValues,
 			resourceLoader: {
 				extensionFactories: [
 					(pi) => {
@@ -96,6 +102,29 @@ describe("AgentSessionRuntimeHost characterization", () => {
 
 		return { runtimeHost, faux, tempDir };
 	}
+
+	it("preserves bootstrap extension flag values for session_start handlers", async () => {
+		const seen: Array<boolean | string | undefined> = [];
+		const { runtimeHost } = await createRuntimeHost(
+			(pi) => {
+				pi.registerFlag("test-flag", {
+					description: "test flag",
+					type: "boolean",
+				});
+				pi.on("session_start", () => {
+					seen.push(pi.getFlag("test-flag"));
+				});
+			},
+			{ flagValues: new Map([["test-flag", true]]) },
+		);
+
+		expect(seen).toEqual([true]);
+
+		const newSessionResult = await runtimeHost.newSession();
+		expect(newSessionResult.cancelled).toBe(false);
+		await runtimeHost.session.bindExtensions({});
+		expect(seen).toEqual([true, true]);
+	});
 
 	it("emits session_before_switch and session_start for new and resume flows", async () => {
 		const events: RecordedSessionEvent[] = [];

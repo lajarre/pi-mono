@@ -622,6 +622,7 @@ function buildRuntimeBootstrap(
 		scopedModels: sessionOptions.scopedModels,
 		tools: sessionOptions.tools,
 		customTools: sessionOptions.customTools,
+		flagValues: new Map(parsed.unknownFlags),
 		resourceLoader: {
 			additionalExtensionPaths: resolveCliPaths(cwd, parsed.extensions),
 			additionalSkillPaths: resolveCliPaths(cwd, parsed.skills),

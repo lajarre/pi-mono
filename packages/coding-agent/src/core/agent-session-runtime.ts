@@ -35,6 +35,8 @@ export interface AgentSessionRuntimeBootstrap {
 	tools?: Tool[];
 	/** Additional custom tools registered directly through the SDK. */
 	customTools?: ToolDefinition[];
+	/** Extension CLI flag values discovered during startup and preserved across runtime replacement. */
+	flagValues?: Map<string, boolean | string>;
 	/**
 	 * Resource loader input used for each created runtime.
 	 *
@@ -97,6 +99,11 @@ export async function createAgentSessionRuntime(
 	await resourceLoader.reload();
 
 	const extensionsResult = resourceLoader.getExtensions();
+	if (bootstrap.flagValues) {
+		for (const [name, value] of bootstrap.flagValues) {
+			extensionsResult.runtime.flagValues.set(name, value);
+		}
+	}
 	for (const { name, config } of extensionsResult.runtime.pendingProviderRegistrations) {
 		modelRegistry.registerProvider(name, config);
 	}
